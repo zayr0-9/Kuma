@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto';
+import { statfs } from 'node:fs/promises';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
   deviceResponseSchema,
   healthResponseSchema,
   pairRequestSchema,
   pairResponseSchema,
+  prepareStatusResponseSchema,
+  prepareUploadRequestSchema,
+  prepareUploadResponseSchema,
   rootRegisterRequestSchema,
   rootRegisterResponseSchema,
   uuidSchema,
@@ -15,10 +19,12 @@ import {
   HEADER_REQUEST_ID,
   PROTOCOL_VERSION,
 } from '@foldersync/protocol';
-import type { PairedDeviceRow, Repositories } from '../db/index.ts';
+import { isTerminalPrepareState, type PairedDeviceRow, type Repositories } from '../db/index.ts';
 import type { PairingWindow } from '../auth/pairingWindow.ts';
 import { generateBearerToken, hashToken } from '../auth/token.ts';
 import { findDestinationOverlap } from '../storage/destinationOverlap.ts';
+import { isReservedRelativePath } from '../storage/layout.ts';
+import { resolveDestinationPath } from '../storage/pathSafety.ts';
 import { ApiError, buildErrorResponse } from './errors.ts';
 
 // The desktop control API (spec 25) served over TLS on the pinned desktop identity
@@ -43,9 +49,20 @@ export interface ControlServerContext {
   repositories: Repositories;
   // Managed by the main process; POST /v1/pair consumes its one-time secret.
   pairingWindow: PairingWindow;
+  // Free bytes available on a destination volume, used by the prepare disk-space
+  // gate (spec 22.2). Injectable so insufficient_space is deterministic in tests;
+  // defaults to statfs on the destination root.
+  freeSpace?: (path: string) => Promise<number>;
   // Injectable clock so last-seen and pairing timestamps are deterministic in tests.
   now?: () => Date;
 }
+
+// spec 22.3: prepares (and their tus uploads) live seven days so a multi-GB
+// transfer can resume across days of flaky Wi-Fi.
+const PREPARE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// Headroom required beyond the file bytes themselves before accepting an upload
+// (spec 22.2) — covers metadata and a small margin against a full volume.
+const DISK_SPACE_SAFETY_MARGIN = 64 * 1024 * 1024;
 
 // Routes reachable without a bearer token (spec 25.2): health, and pair (the phone
 // has no token yet — it authenticates with the one-time secret in the body).
@@ -69,6 +86,12 @@ function normaliseRequestId(header: unknown): string {
 
 export function createControlServer(context: ControlServerContext): FastifyInstance {
   const now = context.now ?? (() => new Date());
+  const freeSpace =
+    context.freeSpace ??
+    (async (path: string) => {
+      const stats = await statfs(path);
+      return stats.bavail * stats.bsize;
+    });
   const { repositories } = context;
 
   const app = Fastify({
@@ -240,6 +263,172 @@ export function createControlServer(context: ControlServerContext): FastifyInsta
         rootId: body.rootId,
         mappingId: body.mappingId,
         status: 'registered',
+      }),
+    );
+  });
+
+  // POST /v1/files/prepare (spec 25.2): reserves an upload for one file, or tells
+  // the phone the desktop already has this version (skip). The phone references a
+  // phone rootId — the destination is resolved server-side from the bound mapping
+  // and never trusted from the payload (spec 18.4). Returns the tus endpoint for
+  // the bytes; the tus mount and commit pipeline attach in later slices.
+  app.post(ENDPOINTS.filesPrepare, async (request) => {
+    const device = request.pairedDevice;
+    if (device === null) {
+      throw new ApiError('unauthorised', 'Not authenticated', { httpStatus: 401 });
+    }
+    const parsed = prepareUploadRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new ApiError('bad_request', 'Malformed prepare request', { httpStatus: 400 });
+    }
+    const body = parsed.data;
+
+    // The phone's rootId is its own root id; only a bound mapping resolves it, and
+    // only one owned by this device (spec 25.1). Unknown/foreign are indistinguishable.
+    const mapping = repositories.roots.getByPhoneRoot(device.phoneDeviceId, body.rootId);
+    if (mapping === null) {
+      throw new ApiError('root_not_mapped', 'Unknown root', { httpStatus: 404 });
+    }
+
+    // Path safety (spec 22.1) before anything touches the filesystem. Any failure
+    // is one code — the specific kind rides in details, never the resolved path.
+    const resolved = resolveDestinationPath(mapping.destinationRoot, body.relativePath);
+    if (!resolved.ok) {
+      throw new ApiError('invalid_relative_path', 'Rejected relative path', {
+        httpStatus: 400,
+        details: { kind: resolved.error.kind },
+      });
+    }
+    if (isReservedRelativePath(resolved.relativePath)) {
+      throw new ApiError('invalid_relative_path', 'Rejected relative path', {
+        httpStatus: 400,
+        details: { kind: 'reserved_managed_dir' },
+      });
+    }
+    const relativePath = resolved.relativePath;
+
+    // Skip when the phone already knows the current committed version (spec 6.5): an
+    // idempotent re-prepare needs no upload. A null/mismatched knownRemoteVersionId
+    // falls through to upload; adopt-in-place then dedupes at commit time.
+    const remoteFile = repositories.files.getRemoteFile(
+      device.phoneDeviceId,
+      body.rootId,
+      relativePath,
+    );
+    if (
+      remoteFile !== null &&
+      remoteFile.state === 'committed' &&
+      remoteFile.currentVersionId !== null &&
+      body.knownRemoteVersionId === remoteFile.currentVersionId
+    ) {
+      const version = repositories.files.getRemoteVersion(remoteFile.currentVersionId);
+      if (version !== null) {
+        return prepareUploadResponseSchema.parse({
+          action: 'skip',
+          remoteVersionId: version.versionId,
+          sha256: version.sha256,
+          size: version.size,
+        });
+      }
+    }
+
+    // Disk-space gate (spec 22.2): the incoming bytes, a conflict/version copy if a
+    // file already exists at the path, and a safety margin.
+    const required = body.size + (remoteFile?.size ?? 0) + DISK_SPACE_SAFETY_MARGIN;
+    if ((await freeSpace(mapping.destinationRoot)) < required) {
+      throw new ApiError('insufficient_space', 'Not enough free space in the destination volume', {
+        httpStatus: 507,
+      });
+    }
+
+    // Idempotent retry: reuse the live reservation for this path rather than
+    // orphaning staging with a fresh prepare id (spec 25.2).
+    const nowIso = now().toISOString();
+    const reusable = repositories.files.findReusablePrepare(
+      device.phoneDeviceId,
+      body.rootId,
+      relativePath,
+      nowIso,
+    );
+    if (reusable !== null) {
+      return prepareUploadResponseSchema.parse({
+        action: 'upload',
+        prepareId: reusable.prepareId,
+        tusEndpoint: ENDPOINTS.uploads,
+        expiresAt: reusable.expiresAt,
+      });
+    }
+
+    const prepareId = randomUUID();
+    const expiresAt = new Date(now().getTime() + PREPARE_TTL_MS).toISOString();
+    repositories.files.createPrepare({
+      prepareId,
+      phoneDeviceId: device.phoneDeviceId,
+      rootId: body.rootId,
+      fileEntryId: body.fileEntryId,
+      relativePath,
+      expectedSize: body.size,
+      createdAt: nowIso,
+      expiresAt,
+    });
+
+    return prepareUploadResponseSchema.parse({
+      action: 'upload',
+      prepareId,
+      tusEndpoint: ENDPOINTS.uploads,
+      expiresAt,
+    });
+  });
+
+  // GET /v1/files/prepare/:prepareId (spec 25.2): upload/verify/commit status for a
+  // reservation the authenticated device owns. A foreign or unknown prepare is
+  // reported identically (upload_not_found) so existence is not leaked.
+  app.get(`${ENDPOINTS.filesPrepare}/:prepareId`, (request) => {
+    const device = request.pairedDevice;
+    if (device === null) {
+      throw new ApiError('unauthorised', 'Not authenticated', { httpStatus: 401 });
+    }
+    const params = request.params as { prepareId?: unknown };
+    const idParse = uuidSchema.safeParse(params.prepareId);
+    if (!idParse.success) {
+      throw new ApiError('bad_request', 'Malformed prepare id', { httpStatus: 400 });
+    }
+    const prepare = repositories.files.getPrepare(idParse.data);
+    if (prepare === null || prepare.phoneDeviceId !== device.phoneDeviceId) {
+      throw new ApiError('upload_not_found', 'Unknown prepare', { httpStatus: 404 });
+    }
+
+    // Lazy expiry so a status read reflects the seven-day lifetime even before the
+    // staging GC runs (spec 22.3).
+    let state = prepare.state;
+    if (!isTerminalPrepareState(state) && prepare.expiresAt <= now().toISOString()) {
+      repositories.files.setPrepareState(prepare.prepareId, 'expired');
+      state = 'expired';
+    }
+
+    // Once committed, surface the winning version's identity/hash so the phone can
+    // verify before deleting its source (spec 19.2); populated by the commit slice.
+    let remoteVersionId: string | null = null;
+    let sha256: string | null = null;
+    if (state === 'committed') {
+      const remoteFile = repositories.files.getRemoteFile(
+        prepare.phoneDeviceId,
+        prepare.rootId,
+        prepare.relativePath,
+      );
+      if (remoteFile?.currentVersionId != null) {
+        remoteVersionId = remoteFile.currentVersionId;
+        sha256 = repositories.files.getRemoteVersion(remoteFile.currentVersionId)?.sha256 ?? null;
+      }
+    }
+
+    return Promise.resolve(
+      prepareStatusResponseSchema.parse({
+        prepareId: prepare.prepareId,
+        state,
+        remoteVersionId,
+        sha256,
+        errorCode: prepare.errorCode,
       }),
     );
   });

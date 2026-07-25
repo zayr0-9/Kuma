@@ -15,6 +15,7 @@ describe('resolveDestinationPath', () => {
     expect(result).toEqual({
       ok: true,
       absolutePath: ['', 'dest', 'Camera', 'IMG_0001.jpg'].join(sep),
+      relativePath: 'Camera/IMG_0001.jpg',
     });
   });
 
