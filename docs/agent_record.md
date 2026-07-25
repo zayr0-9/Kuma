@@ -23,6 +23,43 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T10:10+0100 — feature/phase1-pairing — Pairing endpoint + window + token issuance (spec 24.3/24.5)
+
+- **Done:** `POST /v1/pair` end to end. `auth/pairingWindow.ts` — five-minute
+  window, one 256-bit one-time secret, constant-time compare (`timingSafeEqual`
+  with length guard), one-time consume, injectable clock + secret generator;
+  `activeSecret()` stays main-process-only for QR rendering. `auth/token.ts` gained
+  `generateBearerToken` (32 CSPRNG bytes base64url). Control server: pair route
+  (public — phone has no token yet), validates body → checks mutual protocol
+  support → consumes secret only if otherwise valid (never burns the window on a
+  client error) → mints token → `devices.recordPairing` upsert (re-pair reissues,
+  no PK collision). New generic protocol error code `bad_request` (added to
+  `packages/protocol` + spec §25.3 list; additive, no version bump; existing error
+  fixtures cover the envelope). 12 new tests (7 endpoint: happy path + token works +
+  wrong secret + no window + one-time replay + protocol mismatch keeps window +
+  malformed body + re-pair supersedes old token; 5 window unit). 75 desktop / 144
+  workspace green; lint/typecheck/format clean.
+- **Design notes:** consume-after-validate ordering keeps a client error from
+  burning the one-time secret. `recordPairing` added to the devices repo as an
+  upsert (kept `insert` for tests). Rate limiting (spec 24.6) deliberately deferred
+  — 256-bit secret + hashed tokens make brute force infeasible, so it is not on the
+  slice's critical path; tracked in `agent_desktop.md`. QR **image** rendering +
+  renderer/IPC deferred to the desktop-UI slice; only the payload/secret plumbing
+  exists.
+- **Files:** `apps/desktop/src/main/auth/{pairingWindow,token}.ts`,
+  `apps/desktop/src/main/api/controlServer.ts`,
+  `apps/desktop/src/main/db/repositories/devices.ts`,
+  `apps/desktop/test/{controlServer,pairingWindow}.test.ts`,
+  `packages/protocol/src/errors.ts`, `docs/foldersync_implementation_spec.md`
+  (§25.3 code list).
+- **PR:** branch `feature/phase1-pairing` pushed — open + squash-merge in web UI.
+- **Docs updated:** `agent_desktop.md`, `agent_protocol.md`, spec §25.3, this record.
+- **Follow-ups:** next slice — `POST /v1/roots/register` (destination-overlap guard
+  via `roots.listDestinations()` + pathSafety). Then `POST /v1/files/prepare`
+  (+ file-sync repos + tus into the HTTPS server), `GET /v1/sync/status`, rate
+  limiting, hash worker-thread offload, and the desktop-UI slice (pairing window +
+  QR image render in main).
+
 ### 2026-07-25T09:56+0100 — feature/phase1-control-server — HTTPS control server + auth middleware (spec 24/25)
 
 - **Done:** `createControlServer(context)` — HTTPS Fastify on the pinned desktop

@@ -31,6 +31,10 @@ protocol), 34.2 (contract tests).
 
 - `@foldersync/protocol`: protocol version (1), header names, endpoint paths,
   DNS-SD service type/TXT keys, and the error-code list — constants only, no logic.
+  The error-code list gained `bad_request` (generic malformed-request code, first
+  used by `POST /v1/pair`) with the pairing slice; adding a code is additive and
+  needs no protocol-version bump. The existing error-response golden fixtures cover
+  the envelope shape, so no new fixture was required.
 - `@foldersync/contracts`: Zod schemas for every spec-25 endpoint (pair, prepare,
   prepare status, delete, roots/register, health, device, sync status), the two
   policies + deletion cause enums, the canonical wire-path parser/normaliser
