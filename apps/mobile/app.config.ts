@@ -12,7 +12,18 @@ const config: ExpoConfig = {
     // Placeholder application id — revisit before any distribution.
     package: 'dev.zayr.foldersync',
   },
-  plugins: ['expo-router'],
+  plugins: [
+    'expo-router',
+    [
+      'expo-camera',
+      {
+        // Spike 4: scan the desktop pairing QR in-app (avoids the foldersync:// deep-link
+        // colliding with the dev-client launcher). Rationale shown at the permission prompt.
+        cameraPermission:
+          'FolderSync uses the camera to scan the pairing code shown on your desktop.',
+      },
+    ],
+  ],
   extra: {
     eas: {
       projectId: 'b86a340b-f58c-4903-aa6b-d00956359bcb',

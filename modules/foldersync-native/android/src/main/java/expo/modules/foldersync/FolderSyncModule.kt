@@ -27,6 +27,10 @@ class FolderSyncModule : Module() {
   // the launching AsyncFunction parks its Promise here until the picker returns.
   private var pendingPick: Promise? = null
 
+  // Spike 3: NsdManager discovery is stateful (listener + resolve queue + multicast lock),
+  // so it lives across calls; created lazily on first startDiscovery, torn down on OnDestroy.
+  private var discovery: NsdDiscovery? = null
+
   override fun definition() = ModuleDefinition {
     Name("FolderSyncNative")
 
@@ -194,6 +198,41 @@ class FolderSyncModule : Module() {
         "ticks" to prefs.getLong(FolderSyncService.KEY_TICKS, 0L).toDouble(),
         "updatedAtMs" to prefs.getLong(FolderSyncService.KEY_UPDATED, 0L).toDouble(),
       )
+    }
+
+    // Spike 3 — DNS-SD discovery (spec 35, 23). Pull model: startDiscovery accumulates
+    // resolved desktops that getDiscoveredDesktops snapshots (the harness polls).
+    AsyncFunction("startDiscovery") {
+      val active = discovery ?: NsdDiscovery(context()).also { discovery = it }
+      active.start()
+    }
+
+    AsyncFunction("stopDiscovery") {
+      discovery?.stop()
+      Unit // definite Unit return (a bare `discovery?.stop()` infers Unit?)
+    }
+
+    AsyncFunction("getDiscoveredDesktops") {
+      discovery?.snapshot() ?: emptyList<Map<String, Any?>>()
+    }
+
+    // Spike 4 — pinned-TLS pairing (spec 35, 24). The QR string is parsed + verified natively;
+    // the raw pairing secret and bearer token never surface to JS (spec 20.1 analogue).
+    AsyncFunction("startPairingFromQr") { payload: String ->
+      PairingManager.pairFromQr(context(), payload)
+    }
+
+    AsyncFunction("listPairedDevices") {
+      PairingManager.listPaired(context())
+    }
+
+    AsyncFunction("removePairedDevice") { deviceId: String ->
+      PairingManager.removePaired(context(), deviceId)
+    }
+
+    // Release the multicast lock + discovery listener when the module is torn down.
+    OnDestroy {
+      discovery?.stop()
     }
   }
 
