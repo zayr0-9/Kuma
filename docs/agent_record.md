@@ -60,6 +60,7 @@ Entries are ordered newest-first.
   `apps/mobile/package.json`, lockfile.
 - **PR:** none possible yet (no remote) — squash-merged locally to `main`, branch deleted.
 - **Docs updated:** `agent_mobile.md`, this record.
+- **Update 04:35:** rebuild a3b0994e FINISHED — gradle wiring of foldersync-native verified; APK ready for install.
 - **Follow-ups:** rebuild queued after merge — verify it turns green, then install
   the APK on the Samsung and check "Native module: pong". Hoisted layout is a
   workspace-wide change: desktop suite re-verified in this branch.
