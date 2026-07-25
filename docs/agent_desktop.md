@@ -23,8 +23,11 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   external-modification check → atomic rename. Never report `committed` early;
   serialise commits per `(rootId, relativePath)`. Adopt-in-place when destination hash
   equals staged hash (spec 6.5).
-- Deletion means managed trash (`.foldersync-trash/`), gated on
-  `expectedRemoteVersionId`; `retention_cleanup` delete requests are rejected.
+- Deletion means managed trash (`.foldersync-trash/`) **only under
+  `mirror_user_deletions`** — `preserve_desktop_copy` (and an unknown policy) keeps the
+  copy, since the desktop is never a disposable mirror (spec 6.3). Gated on
+  `expectedRemoteVersionId` (mismatch → `remote_version_conflict`, no action);
+  `retention_cleanup` delete requests are rejected at the contract.
 - Staging is garbage-collected against `upload_prepare` on startup (spec 22.3);
   prepares live ~7 days and are renewable.
 - Tokens stored hashed only; secrets redacted from logs; unexpected certificate change
@@ -203,17 +206,43 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   deps stay external, index.js ~55 kB). 2 new tests (backend bootstrap: DB + identity
   persistence + TLS health + restart-reuses-identity); worker hashing is exercised by
   the existing commit tests. 132 desktop / 201 workspace green.
+- **Files delete + sync status built** (spec 6.4/25.2/26.2): `POST /v1/files/delete`
+  mirrors a phone-reported user/external deletion to the desktop copy. The mechanics
+  live in `sync/deleteService.ts` (`createDeleteService.applyDeletion`, electron-free /
+  unit-tested; the endpoint does only auth, path safety and outcome→HTTP mapping):
+  idempotent by `eventId` (a replay returns the recorded outcome as `already_applied`),
+  gated on `expectedRemoteVersionId` vs the current version (mismatch →
+  `remote_version_conflict` with no action — spec 26.2 requires review), and
+  **policy-aware** — only `mirror_user_deletions` trashes; `preserve_desktop_copy` (and
+  a null/unknown policy) keeps the copy and records `preserved`. Trashing is an atomic
+  rename into `.foldersync-trash/<ts>/<relpath>` (both directory entries fsynced); a
+  source already gone (external race) still records `trashed`. `recordDeletion` writes
+  the `deletion_event` row and flips `remote_file` → `trashed` in one transaction. The
+  `retention_cleanup` cause is rejected at the contract (`bad_request`, spec 6.2), and
+  the response `trashPath` is destination-root-relative — an absolute server path is
+  never sent (spec 30). New `files` repo methods: `getDeletionEvent`, `recordDeletion`,
+  `countPendingCommits`; new `layout.ts` helper `relativeTrashPath`. The response
+  contract gained a `preserved` action; the DB `DeletionAppliedAction` now holds the
+  real stored outcomes (`trashed`/`preserved`/`no_remote_file` — `already_applied` is a
+  read-time replay response only). `GET /v1/sync/status` returns the authenticated
+  device's bound mappings (unbound omitted) with per-destination free space
+  (`destinationAvailable` false when statfs throws) and the commit backlog
+  (`countPendingCommits` — prepares in `uploaded`/`verifying`/`committing`). 17 new
+  tests (7 service matrix, 5 delete endpoint, 5 sync-status endpoint). 149 desktop /
+  221 workspace green.
 - Not yet built: enforcing `Upload-Length` against the prepare's `expected_size`;
   periodic (not just startup) staging GC; commit crash-recovery re-derivation through
   the service (commit.ts already handles it with a recorded sha); failed-auth /
   pairing **rate limiting** (spec 24.6, deferred — 256-bit secret + hashed tokens make
   it non-blocking); the desktop-side mapping-approval IPC (destination picker →
-  `roots.create` with an overlap check at creation time too); `POST /v1/files/delete`;
-  `GET /v1/sync/status`; safeStorage key wrapping for the private key; the QR **image**
-  rendering + renderer/IPC (only the payload/secret plumbing exists); a hash-worker
-  pool (one worker per call today). `GET /v1/device` still reads the in-memory identity
-  summary; a full packaged-app run (launching the built Electron) is owed to confirm
-  the worker path end to end — the build is verified, the launch is not.
+  `roots.create` with an overlap check at creation time too); safeStorage key wrapping
+  for the private key; the QR **image** rendering + renderer/IPC (only the
+  payload/secret plumbing exists); a hash-worker pool (one worker per call today);
+  splitting `controlServer.ts` (now ~575 lines) into `api/routes/*` registrars.
+  `GET /v1/device` still reads the in-memory identity summary. A packaged/preview
+  launch **boots** (the user verified `electron-vite preview`: the renderer renders,
+  Electron 43.2.0 / Node 24.18.0) — but the worker path spawned in the packaged
+  process via a real commit is still owed; the build is verified, that runtime is not.
 
 ## Update this file when
 

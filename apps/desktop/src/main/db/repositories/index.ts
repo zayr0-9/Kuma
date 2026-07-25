@@ -31,4 +31,5 @@ export {
   type FilesRepository,
   type CreatePrepareInput,
   type RecordCommittedVersionInput,
+  type RecordDeletionInput,
 } from './files.ts';

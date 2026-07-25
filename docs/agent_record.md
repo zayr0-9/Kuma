@@ -23,6 +23,52 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T13:28+0100 — feature/phase1-files-delete-status — Files delete (managed trash) + sync status (spec 6.4/25.2/26.2)
+
+- **Done:** the last two control-API endpoints. `POST /v1/files/delete` mirrors a
+  phone-reported user/external deletion to the desktop copy. Mechanics live in the new
+  electron-free `sync/deleteService.ts` (`applyDeletion`); the endpoint does only auth,
+  path safety and outcome→HTTP mapping. Behaviour: idempotent by `eventId` (replay →
+  `already_applied` with the recorded trash path); version gate on
+  `expectedRemoteVersionId` vs the current version (mismatch → `remote_version_conflict`,
+  409, no action, spec 26.2); **policy-aware** — only `mirror_user_deletions` trashes,
+  `preserve_desktop_copy`/null keeps the copy and records `preserved` (spec 6.3, the
+  desktop is not a disposable mirror); trash is an atomic rename into
+  `.foldersync-trash/<ts>/<relpath>` with both dir entries fsynced; an already-gone
+  source (external race) still records `trashed`. `retention_cleanup` is rejected at the
+  contract (`bad_request`, spec 6.2). `recordDeletion` writes the `deletion_event` row
+  and flips `remote_file` → `trashed` in one transaction. Response `trashPath` is
+  destination-root-relative — no absolute server path on the wire (spec 30).
+  `GET /v1/sync/status` returns the authenticated device's bound mappings (unbound
+  omitted) with per-destination free space (`destinationAvailable` false when statfs
+  throws) and the commit backlog (`countPendingCommits`). New `files` repo methods
+  (`getDeletionEvent`, `recordDeletion`, `countPendingCommits`) and `layout.ts` helper
+  `relativeTrashPath`. Contract gained a `preserved` action; DB `DeletionAppliedAction`
+  is now the real stored outcomes (`already_applied` is a read-time replay response
+  only). 17 new tests (7 service matrix, 5 delete endpoint, 5 sync-status endpoint), 3
+  new golden fixtures. 149 desktop / 221 workspace green; lint/typecheck/format clean.
+- **Verification:** before this slice the user ran `electron-vite preview` on the
+  built output — the packaged renderer boots (Electron 43.2.0 / Node 24.18.0), closing
+  the main-wiring build-config risk. Still owed: the worker path spawned in the
+  packaged process via a real commit (needs an upload round-trip).
+- **Files:** `apps/desktop/src/main/sync/deleteService.ts` (new),
+  `apps/desktop/src/main/api/controlServer.ts` (two endpoints + service),
+  `apps/desktop/src/main/db/repositories/files.ts` (delete/count methods),
+  `apps/desktop/src/main/db/{types.ts,repositories/index.ts}`,
+  `apps/desktop/src/main/storage/layout.ts` (`relativeTrashPath`),
+  `packages/contracts/src/files.ts` (`preserved` action),
+  `apps/desktop/test/{deleteService,controlServer}.test.ts`,
+  `packages/test-fixtures/fixtures/file-delete-response/*` (3 new).
+- **PR:** branch `feature/phase1-files-delete-status` pushed — open + squash-merge.
+- **Docs updated:** `agent_desktop.md` (delete/status state, deletion hard rule), this
+  record.
+- **Follow-ups:** the desktop-UI slice (pairing window + QR image render in main +
+  destination-picker IPC with an overlap check at mapping creation). Then safeStorage
+  key wrapping for the private key, `Upload-Length` vs `expected_size` enforcement,
+  periodic (not just startup) staging GC, a hash-worker pool, and a packaged-app launch
+  driving a real commit to close the worker verification. `controlServer.ts` is now
+  ~575 lines — split into `api/routes/*` registrars in the next slice that touches it.
+
 ### 2026-07-25T11:48+0100 — feature/phase1-main-wiring — Backend wired into Electron main + worker-thread hashing (spec 20.1/20.2/22.3)
 
 - **Done:** the tested-but-unwired backend now runs. `src/main/backend.ts`
