@@ -23,6 +23,50 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T11:48+0100 — feature/phase1-main-wiring — Backend wired into Electron main + worker-thread hashing (spec 20.1/20.2/22.3)
+
+- **Done:** the tested-but-unwired backend now runs. `src/main/backend.ts`
+  (`startBackend`) assembles it independently of Electron — opens the DB, loads/
+  persists the TLS identity + writes its `desktop_identity` summary row, builds the
+  commit coordinator, serves the HTTPS control server, starts DNS-SD advertising
+  (skippable in tests), and runs startup staging GC (new `files.listActivePrepares`
+  → `garbageCollectStaging` per destination). `main/index.ts` stays the only
+  electron-aware file: `startBackend` on `whenReady`, clean `close` on `will-quit`.
+  **Worker-thread hashing landed for real** (spec 20.2): `storage/hashWorker.ts`
+  streams SHA-256, `storage/hash.ts` offloads to it. Key finding: electron-vite's
+  Node build does **not** apply Vite's browser-worker transform to
+  `new Worker(new URL(...))` — it left the literal `./hashWorker.ts` in the bundle
+  with no chunk emitted (would break the packaged app). Fixed by emitting the worker
+  as a second `rollupOptions.input` (`out/main/hashWorker.js`) and resolving it
+  dev/prod-aware in `hash.ts` (source `.ts` under vitest/Node 26, sibling `.js` beside
+  `index.js` in the package). Setting a custom `input` drops
+  `externalizeDepsPlugin`'s external list (fastify/ciao inlined → 2.1 MB), so main now
+  externalizes via an explicit predicate (bundle only relative/absolute source). **All
+  verified by a real `pnpm build`**: worker emitted with its body, deps external,
+  index.js ~55 kB. 2 new tests (backend bootstrap over TLS + restart-reuses-identity);
+  worker hashing exercised by the existing commit tests. 132 desktop / 201 workspace
+  green; lint/typecheck/format clean.
+- **Verification boundary:** the build is verified headlessly; a full packaged-app
+  **launch** (real Electron, worker actually spawned in the packaged process) is not
+  possible headlessly and is owed — same class as the manual GUI runs the user did for
+  the blank-renderer fix. The dev/test worker path and the build emission are both
+  proven; only the packaged runtime launch is unverified.
+- **Files:** `apps/desktop/src/main/backend.ts` (new), `apps/desktop/src/main/index.ts`
+  (start/stop backend), `apps/desktop/electron.vite.config.ts` (worker input +
+  explicit main external), `apps/desktop/src/main/storage/{hash,hashWorker}.ts`
+  (worker), `apps/desktop/src/main/auth/identityStore.ts` (`identityCertificateRef`),
+  `apps/desktop/src/main/db/repositories/files.ts` (`listActivePrepares`),
+  `apps/desktop/test/backend.test.ts` (new).
+- **PR:** branch `feature/phase1-main-wiring` pushed — open + squash-merge.
+- **Docs updated:** `agent_desktop.md` (main-wiring + worker state, revised
+  externalize note), this record.
+- **Follow-ups:** next slice — `POST /v1/files/delete` (managed-trash deletion,
+  gated on `expectedRemoteVersionId`, `retention_cleanup` rejected) and
+  `GET /v1/sync/status`. Then the desktop-UI slice (pairing window + QR image render
+  in main + destination-picker IPC), safeStorage key wrapping, `Upload-Length` vs
+  `expected_size`, periodic staging GC, and a packaged-app launch to close the worker
+  verification. Split `controlServer.ts` into `api/routes/*` when delete/status land.
+
 ### 2026-07-25T11:20+0100 — feature/phase1-commit-on-finish — Commit on upload finish + version persistence (spec 18.5/6.5)
 
 - **Done:** the upload→visible loop is closed. `sync/commitService.ts`

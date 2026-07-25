@@ -67,11 +67,15 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   incl. impersonator rejection; generate-once store, 0600 key file).
   `reflect-metadata` must stay imported before `@peculiar/x509`. Android halves
   of both spikes wait on the dev client.
-- Dev-loop gotchas (learned from the first GUI run): `externalizeDepsPlugin` is
-  mandatory on main+preload (without it the electron installer shim gets inlined
-  into the sandboxed preload and dies on `child_process`); dev CSP allows inline
-  scripts via `%VITE_CSP_SCRIPT_EXTRA%` env substitution only — production CSP
-  stays strict; renderer console/preload errors relay to the terminal in dev.
+- Dev-loop gotchas (learned from the first GUI run): the preload keeps
+  `externalizeDepsPlugin` (without it the electron installer shim gets inlined into
+  the sandboxed preload and dies on `child_process`); **main** now sets a custom
+  `rollupOptions.input` (to emit the hash worker, below), which drops the plugin's
+  external list, so main externalizes deps with an explicit `external` predicate
+  (bundle only relative/absolute source; externalize every bare + `node:` specifier)
+  — verified by build size (index.js ~55 kB, deps not inlined). Dev CSP allows inline
+  scripts via `%VITE_CSP_SCRIPT_EXTRA%` env substitution only — production CSP stays
+  strict; renderer console/preload errors relay to the terminal in dev.
 - Dev-loop observability: renderer console and preload errors are relayed to the
   terminal in dev (main/index.ts) — a blank window must never be silent. CSP is
   env-driven: production stays strict; dev adds the React-refresh inline allowance
@@ -181,23 +185,35 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   `recordCommittedVersion`. 15 new tests (7 service, 4 coordinator, 1 full-loop TLS
   upload→commit→visible, 2 repo supersede, +1 net from refactors). 130 desktop / 199
   workspace green.
-- Not yet built: **hash worker-thread offload** (spec 20.2) — implemented and
-  test-green on Node 26, but reverted here because its production form needs
-  electron-vite Node-worker bundling that can only be designed/verified once the
-  Electron main process actually imports this backend (nothing does yet; the whole
-  control-server/DB/sync stack is built-and-tested but not wired into `main/index.ts`,
-  so `pnpm build` bundles only the window skeleton). It lands with that main-wiring
-  slice, verified by a real build. Also pending: enforcing `Upload-Length` against
-  the prepare's `expected_size`; commit crash-recovery re-derivation through the
-  service (commit.ts already handles it with a recorded sha); failed-auth / pairing
-  **rate limiting** (spec 24.6, deferred — 256-bit secret + hashed tokens make it
-  non-blocking); the desktop-side mapping-approval IPC (destination picker →
+- **Main process wiring + worker-thread hashing built** (spec 20.1/20.2/22.3):
+  `src/main/backend.ts` (`startBackend`) assembles the whole privileged backend
+  independently of Electron so it starts/stops under vitest against a temp data dir —
+  opens the DB (`app.getPath('userData')`), loads/persists the TLS identity
+  (`loadOrCreateIdentity`) and writes its `desktop_identity` summary row, builds the
+  commit coordinator, serves the HTTPS control server, starts DNS-SD advertising
+  (skippable in tests), and runs startup staging GC (`files.listActivePrepares` →
+  `garbageCollectStaging` per destination). `main/index.ts` is now the only
+  electron-aware file: it calls `startBackend` on `whenReady` and closes it on
+  `will-quit`. **Worker-thread hashing** is real: `storage/hashWorker.ts` streams the
+  SHA-256; `storage/hash.ts` spawns it via `new Worker`. electron-vite's Node build
+  does **not** transform `new Worker(new URL(...))`, so the worker is emitted as a
+  second `rollupOptions.input` (`out/main/hashWorker.js`) and `hash.ts` resolves it
+  dev/prod-aware (source `.ts` under vitest/Node, sibling `.js` beside `index.js` in
+  the package) — **verified by a real `pnpm build`** (worker emitted with its body,
+  deps stay external, index.js ~55 kB). 2 new tests (backend bootstrap: DB + identity
+  persistence + TLS health + restart-reuses-identity); worker hashing is exercised by
+  the existing commit tests. 132 desktop / 201 workspace green.
+- Not yet built: enforcing `Upload-Length` against the prepare's `expected_size`;
+  periodic (not just startup) staging GC; commit crash-recovery re-derivation through
+  the service (commit.ts already handles it with a recorded sha); failed-auth /
+  pairing **rate limiting** (spec 24.6, deferred — 256-bit secret + hashed tokens make
+  it non-blocking); the desktop-side mapping-approval IPC (destination picker →
   `roots.create` with an overlap check at creation time too); `POST /v1/files/delete`;
-  `GET /v1/sync/status`; safeStorage key wrapping; the QR **image** rendering +
-  renderer/IPC (only the payload/secret plumbing exists). The DB summary row for
-  `desktop_identity` is written when identity is wired into the main process (identity
-  currently persists to files only via `identityStore.ts`); `GET /v1/device` reads the
-  in-memory identity summary.
+  `GET /v1/sync/status`; safeStorage key wrapping for the private key; the QR **image**
+  rendering + renderer/IPC (only the payload/secret plumbing exists); a hash-worker
+  pool (one worker per call today). `GET /v1/device` still reads the in-memory identity
+  summary; a full packaged-app run (launching the built Electron) is owed to confirm
+  the worker path end to end — the build is verified, the launch is not.
 
 ## Update this file when
 
