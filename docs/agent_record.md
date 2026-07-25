@@ -54,8 +54,8 @@ Entries are ordered newest-first.
   `/v1/device`; (2) pairing window/secret + `POST /v1/pair` + token issuance;
   (3) `POST /v1/roots/register` with destination-overlap guard (uses
   `roots.listDestinations()`); (4) `POST /v1/files/prepare` + status + the
-  file-sync repos + tus `namingFunction`; (5) worker-thread hashing. Packaged-app
-  + Ubuntu/Windows node:sqlite verification still owed per the ADR.
+  file-sync repos + tus `namingFunction`; (5) worker-thread hashing. The
+  packaged-app and Ubuntu/Windows node:sqlite verification is still owed per the ADR.
 
 ### 2026-07-25T09:18+0100 — main (setup) — GitHub remote created via personal SSH alias
 
