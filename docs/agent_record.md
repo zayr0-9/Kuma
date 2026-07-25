@@ -25,7 +25,7 @@ Entries are ordered newest-first.
 
 ### 2026-07-25T03:45+0100 — spike/desktop-atomic-commit — Spike 6 passed
 
-- **Done:** desktop atomic-commit pipeline with 31 new tests (116 total):
+- **Done:** desktop atomic-commit pipeline with 15 new tests (31 in the desktop suite, 100 workspace-wide):
   `commitStagedFile` (verify size/sha → adopt-in-place | conflict-preserve |
   replace-if-unchanged → fsync → atomic rename), crash simulation before/after
   rename with deterministic recovery (`already_committed` via recorded sha),
