@@ -4,3 +4,9 @@ packages:
   - modules/*
 
 saveExact: true
+
+# postinstall scripts are blocked by default; these are the only packages allowed
+# to run them (binary downloads)
+allowBuilds:
+  electron: true
+  esbuild: true

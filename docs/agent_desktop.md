@@ -34,7 +34,20 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
 
 ## Current state
 
-- Not yet scaffolded. Spikes 3, 4 and 6 (spec 35) land here first.
+- Skeleton in place: electron-vite 5 (Electron 43.2.0, Vite 8, React 19) with the
+  spec-20.1 security defaults wired (`contextIsolation`, `sandbox: true`, no
+  `nodeIntegration`, window-open denied, CSP meta, CJS preload because sandboxed
+  preloads cannot be ESM). Preload exposes only `runtimeVersions`. `pnpm dev:desktop`
+  launches it; `pnpm --filter desktop build` is the headless verification.
+- `src/main/storage/pathSafety.ts`: spec-22.1 destination validation —
+  `resolveDestinationPath` (wire rules via contracts + win32 reserved
+  names/invalid chars/trailing dot-space/MAX_PATH + containment re-check) and
+  `parentsResolveInsideRoot` (symlink-escape check). 16 tests, including a real
+  symlink-escape case. All filesystem writes must go through these.
+- `skipLibCheck: true` in this package only (electron-vite d.ts imports optional
+  peers); base config keeps lib checking on.
+- Not yet built: Fastify control API, tus server, SQLite, discovery, TLS/pairing —
+  Spikes 3, 4 and 6 (spec 35) come before broad feature work.
 
 ## Update this file when
 

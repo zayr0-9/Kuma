@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["node"],
+    // electron-vite's .d.ts imports optional peers (@swc/core) we don't install;
+    // lib checking is skipped here only — the base config keeps it on (spec 33.2
+    // permits platform overrides for electron-vite requirements).
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src", "test", "electron.vite.config.ts"]
+}

@@ -23,6 +23,23 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T03:06+0100 — feature/phase0-desktop-skeleton — Desktop skeleton + path safety
+
+- **Done:** `apps/desktop` electron-vite skeleton (Electron 43.2.0 — the spec's
+  research baseline — Vite 8, React 19) with spec-20.1 security defaults; preload
+  exposes only `runtimeVersions`; CJS preload (sandboxed preloads can't be ESM);
+  CSP meta. Spec-22.1 path safety implemented in `src/main/storage/pathSafety.ts`
+  with 16 tests (win32 reserved names, MAX_PATH, control chars, containment,
+  symlink escape via real temp dirs). `electron-vite build` verified headless.
+  85 tests green workspace-wide; typecheck/lint/format clean.
+- **Files:** `apps/desktop/**`, `pnpm-workspace.yaml` (allowBuilds for
+  electron/esbuild).
+- **PR:** none possible yet (no remote) — squash-merged locally to `main`, branch deleted.
+- **Docs updated:** `agent_desktop.md` (current state), this record.
+- **Follow-ups:** GUI launch not exercised in this session — run `pnpm dev:desktop`
+  once manually. Next slices: mobile Expo skeleton + native module skeleton, then
+  Spike 6 (staging → hash → atomic commit) can start desktop-side.
+
 ### 2026-07-25T03:00+0100 — feature/phase0-protocol-contracts — Protocol + contracts packages
 
 - **Done:** `packages/protocol` (version/header/endpoint/error/discovery constants),
