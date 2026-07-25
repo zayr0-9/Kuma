@@ -46,8 +46,19 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   symlink-escape case. All filesystem writes must go through these.
 - `skipLibCheck: true` in this package only (electron-vite d.ts imports optional
   peers); base config keeps lib checking on.
-- Not yet built: Fastify control API, tus server, SQLite, discovery, TLS/pairing —
-  Spikes 3, 4 and 6 (spec 35) come before broad feature work.
+- **Spike 6 PASSED** (see `architecture-decisions/spike-6-desktop-atomic-commit.md`):
+  the commit pipeline exists and is the required path for making files visible —
+  `src/main/sync/commit.ts` (`commitStagedFile`: size/hash verify → conflict
+  preserve or adopt-in-place → fsync → atomic rename; crash-recovery converges),
+  `src/main/sync/stagingGc.ts` (spec 22.3), `src/main/storage/layout.ts`
+  (managed dirs, reserved-path guard, trash/conflict timestamps),
+  `src/main/storage/hash.ts`, `src/main/storage/durability.ts`, and
+  `src/main/api/uploadServer.ts` (Fastify + @tus/server with hijacked raw
+  responses — proven resumable end to end).
+- Not yet built: control API endpoints (auth, prepare, delete), SQLite metadata,
+  discovery advertisement, TLS identity/pairing — Spikes 3 and 4 (spec 35) come
+  before broad feature work. Hash worker-thread offload lands with the control
+  API wiring.
 
 ## Update this file when
 

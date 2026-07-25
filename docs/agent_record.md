@@ -23,6 +23,23 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T03:45+0100 — spike/desktop-atomic-commit — Spike 6 passed
+
+- **Done:** desktop atomic-commit pipeline with 31 new tests (116 total):
+  `commitStagedFile` (verify size/sha → adopt-in-place | conflict-preserve |
+  replace-if-unchanged → fsync → atomic rename), crash simulation before/after
+  rename with deterministic recovery (`already_committed` via recorded sha),
+  staging GC, reserved-path guard (`.foldersync-*` never addressable from the
+  wire), and the Fastify + @tus/server integration proven with a real
+  interrupted-and-resumed chunked upload committed byte-identically. ADR:
+  `docs/architecture-decisions/spike-6-desktop-atomic-commit.md` (PASSED).
+- **Files:** `apps/desktop/src/main/{sync,storage,api}/**`, tests, ADR.
+- **PR:** none possible yet (no remote) — squash-merged locally to `main`, branch deleted.
+- **Docs updated:** `agent_desktop.md`, this record, new ADR.
+- **Follow-ups:** worker-thread hash offload + tus `namingFunction` tied to
+  prepare ids land with the control-API slice. Spikes 1/2/5 need the EAS dev
+  build (blocked on `eas login`); spikes 3/4 desktop halves are next candidates.
+
 ### 2026-07-25T03:20+0100 — feature/phase0-mobile-native-skeleton — Mobile + native module skeletons
 
 - **Done:** `apps/mobile` Expo SDK 57.0.8 skeleton (Expo Router, expo-dev-client,

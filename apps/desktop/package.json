@@ -13,6 +13,9 @@
   "dependencies": {
     "@foldersync/contracts": "workspace:*",
     "@foldersync/protocol": "workspace:*",
+    "@tus/file-store": "2.1.0",
+    "@tus/server": "2.4.2",
+    "fastify": "5.10.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
