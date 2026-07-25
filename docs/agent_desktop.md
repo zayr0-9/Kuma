@@ -230,19 +230,42 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   (`countPendingCommits` — prepares in `uploaded`/`verifying`/`committing`). 17 new
   tests (7 service matrix, 5 delete endpoint, 5 sync-status endpoint). 149 desktop /
   221 workspace green.
-- Not yet built: enforcing `Upload-Length` against the prepare's `expected_size`;
+- **Desktop pairing UI built** (first renderer feature; spec 24.3/20.1): the renderer
+  gets a `PairingPanel` that shows the QR a phone scans, the desktop's display name, and
+  a countdown to the window's expiry. The **QR is rendered in the main process** and
+  crosses to the renderer only as a PNG data URL — the raw secret never enters renderer
+  state. Pieces: `src/shared/pairing.ts` (IPC channel names + the secret-free
+  `PairingPresentation` DTO, shared by main/preload/renderer), `src/main/ui/pairingQr.ts`
+  (`renderPairingQr` — payload via the contract builder + `qrcode.toDataURL`, pure /
+  tested), `src/main/ui/pairingController.ts` (`createPairingController` — opens the
+  window, renders from the fresh secret, returns image + expiry only; electron-free /
+  tested, the no-secret-leak invariant asserted), `src/main/net/lanHost.ts`
+  (`resolveLanHost` — first non-internal IPv4 for the QR host hint, tested),
+  `src/main/ui/ipc.ts` (`registerPairingIpc` — the thin `ipcMain.handle` glue, disposed
+  on quit). The preload exposes `folderSync.pairing.{start,cancel}` (ipcRenderer used
+  only inside the bridge); `main/index.ts` registers the IPC after the backend starts.
+  `qrcode` (1.5.4, pure JS) added and kept **external** in the main build (predicate
+  already externalizes bare specifiers — verified in the bundle). Renderer CSP gained
+  `img-src 'self' data:` for the QR. `backend.ts` now exposes `displayName`. 6 new tests
+  (2 lanHost, 1 QR render, 3 controller); 155 desktop green. **Verified by a real
+  `pnpm build`** (preload emits the channels, main keeps qrcode external, built HTML
+  carries the new CSP).
+- Not yet built: the **manual-code** pairing fallback and live **pairing-completion
+  feedback** (main→renderer push on a successful pair) — the panel shows the QR + expiry
+  only; the desktop **destinations UI** (destination picker → `roots.create` with an
+  overlap check at creation time; mappings need a paired device by FK, so this follows
+  pairing); enforcing `Upload-Length` against the prepare's `expected_size`;
   periodic (not just startup) staging GC; commit crash-recovery re-derivation through
   the service (commit.ts already handles it with a recorded sha); failed-auth /
   pairing **rate limiting** (spec 24.6, deferred — 256-bit secret + hashed tokens make
-  it non-blocking); the desktop-side mapping-approval IPC (destination picker →
-  `roots.create` with an overlap check at creation time too); safeStorage key wrapping
-  for the private key; the QR **image** rendering + renderer/IPC (only the
-  payload/secret plumbing exists); a hash-worker pool (one worker per call today);
-  splitting `controlServer.ts` (now ~575 lines) into `api/routes/*` registrars.
-  `GET /v1/device` still reads the in-memory identity summary. A packaged/preview
-  launch **boots** (the user verified `electron-vite preview`: the renderer renders,
-  Electron 43.2.0 / Node 24.18.0) — but the worker path spawned in the packaged
-  process via a real commit is still owed; the build is verified, that runtime is not.
+  it non-blocking); safeStorage key wrapping for the private key; a hash-worker pool
+  (one worker per call today); splitting `controlServer.ts` (now ~575 lines) into
+  `api/routes/*` registrars. `GET /v1/device` still reads the in-memory identity
+  summary. A packaged/preview launch **boots** (the user verified `electron-vite
+preview`: the renderer renders, Electron 43.2.0 / Node 24.18.0) — still owed by a
+  manual launch: the pairing panel actually rendering its QR + the `pairing:*` IPC round
+  trip, and the worker path spawned in the packaged process via a real commit. The
+  builds are verified; those runtime paths are not.
 
 ## Update this file when
 
