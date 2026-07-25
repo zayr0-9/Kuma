@@ -57,6 +57,11 @@ boundary), 32.2 (EAS workflow). UI changes also require
 - EAS builds run on Node 24.18.0 (`"node"` in every eas.json profile) — the EAS
   default image ships Node 22, which violates our engines field.
 
+- Dev-loop gotcha: the macOS firewall must allow incoming connections for
+  node, or the phone cannot reach Metro (symptom: connection reset on the QR
+  scan). Fallback: USB + adb reverse tcp:8081 tcp:8081, connect to
+  http://localhost:8081.
+
 ## Update this file when
 
 Structure, navigation approach, state libraries, the native wrapper surface, or the dev

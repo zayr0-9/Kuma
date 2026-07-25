@@ -68,6 +68,12 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   into the sandboxed preload and dies on `child_process`); dev CSP allows inline
   scripts via `%VITE_CSP_SCRIPT_EXTRA%` env substitution only — production CSP
   stays strict; renderer console/preload errors relay to the terminal in dev.
+- Dev-loop observability: renderer console and preload errors are relayed to the
+  terminal in dev (main/index.ts) — a blank window must never be silent. CSP is
+  env-driven: production stays strict; dev adds the React-refresh inline allowance
+  and blob worker-src (.env.development). electron stays external in the preload
+  build (externalizeDepsPlugin + explicit external) — bundling it pulls the npm
+  installer shim, which dies in the sandbox.
 - Not yet built: control API endpoints (auth, prepare, delete), SQLite metadata,
   pairing endpoint/window. Hash worker-thread offload lands with the control
   API wiring; safeStorage key wrapping lands with main-process wiring.

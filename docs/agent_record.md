@@ -23,26 +23,32 @@ Entries are ordered newest-first.
 
 ---
 
-### 2026-07-25T09:05+0100 — fix/desktop-renderer-blank — Blank renderer fixed, first GUI run
+### 2026-07-25T09:10+0100 — fix/desktop-renderer-blank — Both apps verified live on real targets
 
-- **Done:** first real `pnpm dev:desktop` launch surfaced two renderer-killers:
-  (1) CSP `script-src 'self'` blocked Vite's inline React-refresh preamble in dev
-  — fixed with `%VITE_CSP_SCRIPT_EXTRA%` html-env substitution (.env.development
-  adds 'unsafe-inline', .env.production keeps it locked down); (2) the preload
-  bundle inlined the electron npm installer shim (requires child_process → dies
-  in the sandbox) because `externalizeDepsPlugin` was missing — fixed with the
-  plugin on main+preload plus explicit `external: ['electron']`. Preload now
-  0.25 kB. Also: renderer console + preload errors relay to the terminal in dev
-  (a blank window must never be silent), and App.tsx degrades to a visible
-  message when the bridge is absent.
+- **Done:** desktop blank-window bug fixed — two causes: (1) CSP `script-src
+'self'` blocked Vite's inline React-refresh preamble in dev (now env-driven:
+  `%VITE_CSP_SCRIPT_EXTRA%`/`%VITE_CSP_DEV_DIRECTIVES%` via .env.development /
+  .env.production, production CSP unchanged); (2) the preload bundle inlined the
+  `electron` npm installer shim (requires `child_process` → dies in the sandbox)
+  because `externalizeDepsPlugin()` was missing — now applied to main+preload
+  with `external: ['electron']` as belt-and-braces. Added permanent dev
+  observability: renderer `console-message` and `preload-error` relayed to the
+  terminal (a blank window must never be silent). App.tsx degrades to a visible
+  message if the bridge is absent. **Verified live:** desktop window renders
+  "Electron 43.2.0, Node 24.18.0"; phone dev client loads the bundle and shows
+  **"Native module: pong"** — full EAS→Kotlin→autolinking→bridge chain proven.
+- **Gotcha for the dev loop:** macOS firewall had `node` set to "Block incoming
+  connections", which reset the phone→Metro connection (symptom: QR scan →
+  "connection reset"). Fix: System Settings → Network → Firewall → Options →
+  node → Allow. `adb reverse tcp:8081 tcp:8081` over USB is the fallback.
 - **Files:** `apps/desktop/electron.vite.config.ts`, `src/main/index.ts`,
-  `src/renderer/**`, `.env.development/.env.production` (unignored — CSP toggles
-  only), `.gitignore`.
+  renderer (App/env.d.ts/index.html), `.env.development`, `.env.production`,
+  `.gitignore`.
 - **PR:** none possible yet (no remote) — squash-merged locally to `main`, branch deleted.
-- **Docs updated:** `agent_desktop.md`, this record.
-- **Follow-ups:** phone → Metro blocked by the macOS firewall ("node" set to
-  Block incoming connections); user flipping it to Allow. Dev-client connect via
-  QR or manual http://192.168.0.250:8081 after that.
+- **Docs updated:** `agent_desktop.md`, `agent_mobile.md`, this record.
+- **Follow-ups:** with the dev client live, all four Android spike halves are
+  unblocked (SAF, foreground service, NsdManager browse, pinned-TLS client).
+  Phase 1 vertical slice can begin.
 
 ### 2026-07-25T04:15+0100 — spike/discovery-tls-desktop — Spikes 3 & 4 desktop halves passed
 
