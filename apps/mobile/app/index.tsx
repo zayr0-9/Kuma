@@ -1,3 +1,4 @@
+import { Link } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import type { ReactElement } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -14,6 +15,9 @@ export default function HomeScreen(): ReactElement {
         Native module:{' '}
         {nativeStatus.ok ? nativeStatus.reply : `not linked (${nativeStatus.reason})`}
       </Text>
+      <Link href="/spike-saf" style={styles.link}>
+        Open SAF spike
+      </Link>
       <StatusBar style="auto" />
     </View>
   );
@@ -25,6 +29,11 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: 'center',
     padding: 24,
+  },
+  link: {
+    color: '#1d4ed8',
+    fontWeight: '600',
+    paddingVertical: 8,
   },
   title: {
     fontSize: 24,
