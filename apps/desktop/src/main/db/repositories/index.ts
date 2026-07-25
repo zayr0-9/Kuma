@@ -30,6 +30,5 @@ export {
   isTerminalPrepareState,
   type FilesRepository,
   type CreatePrepareInput,
-  type InsertRemoteFileInput,
-  type InsertRemoteVersionInput,
+  type RecordCommittedVersionInput,
 } from './files.ts';

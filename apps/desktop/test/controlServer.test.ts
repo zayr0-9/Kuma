@@ -419,8 +419,6 @@ describe('POST /v1/roots/register', () => {
 });
 
 const FILE_ENTRY = 'ffffffff-6666-4666-8666-666666666666';
-const VERSION1 = 'dddddddd-7777-4777-8777-777777777777';
-const REMOTE_FILE1 = '00000000-8888-4888-8888-888888888888';
 const OTHER_UUID = '12121212-9999-4999-8999-999999999999';
 const SHA = 'a'.repeat(64);
 
@@ -458,32 +456,19 @@ function prepareBody(overrides: Record<string, unknown> = {}): string {
   });
 }
 
-// Seeds a committed file at Camera/IMG_0001.jpg with a single version (what the
-// commit slice will write for real).
-function seedCommittedFile(rootId = ROOT1, relativePath = 'Camera/IMG_0001.jpg'): void {
-  const files = createRepositories(db).files;
-  files.insertRemoteFile({
-    id: REMOTE_FILE1,
+// Seeds a committed file at Camera/IMG_0001.jpg with a single version, via the real
+// commit writer, and returns the generated version id.
+function seedCommittedFile(relativePath = 'Camera/IMG_0001.jpg'): string {
+  const { versionId } = createRepositories(db).files.recordCommittedVersion({
     phoneDeviceId: 'phone-1',
-    rootId,
+    rootId: ROOT1,
     fileEntryId: FILE_ENTRY,
     relativePath,
-    currentVersionId: VERSION1,
     sha256: SHA,
     size: 1024,
-    destinationMtimeMs: 1784981000000,
-    destinationIdentity: null,
-    committedAt: CLOCK,
-    state: 'committed',
-  });
-  files.insertRemoteVersion({
-    versionId: VERSION1,
-    remoteFileId: REMOTE_FILE1,
-    sha256: SHA,
-    size: 1024,
-    originalRelativePath: relativePath,
     committedAt: CLOCK,
   });
+  return versionId;
 }
 
 describe('POST /v1/files/prepare', () => {
@@ -516,18 +501,18 @@ describe('POST /v1/files/prepare', () => {
 
   it('skips when the phone already knows the current committed version', async () => {
     bindMapping(MAP1, ROOT1, '/backups/camera');
-    seedCommittedFile();
+    const versionId = seedCommittedFile();
     const res = await call(
       'POST',
       '/v1/files/prepare',
       registerHeaders(),
-      prepareBody({ knownRemoteVersionId: VERSION1 }),
+      prepareBody({ knownRemoteVersionId: versionId }),
     );
     expect(res.status).toBe(200);
     const body = prepareUploadResponseSchema.parse(res.json());
     expect(body).toEqual({
       action: 'skip',
-      remoteVersionId: VERSION1,
+      remoteVersionId: versionId,
       sha256: SHA,
       size: 1024,
     });
@@ -642,7 +627,7 @@ describe('GET /v1/files/prepare/:prepareId', () => {
 
   it('surfaces the committed version id and hash', async () => {
     bindMapping(MAP1, ROOT1, '/backups/camera');
-    seedCommittedFile();
+    const versionId = seedCommittedFile();
     createRepositories(db).files.createPrepare({
       prepareId: OTHER_UUID,
       phoneDeviceId: 'phone-1',
@@ -657,7 +642,7 @@ describe('GET /v1/files/prepare/:prepareId', () => {
     const res = await call('GET', `/v1/files/prepare/${OTHER_UUID}`, authHeaders());
     const body = prepareStatusResponseSchema.parse(res.json());
     expect(body.state).toBe('committed');
-    expect(body.remoteVersionId).toBe(VERSION1);
+    expect(body.remoteVersionId).toBe(versionId);
     expect(body.sha256).toBe(SHA);
   });
 

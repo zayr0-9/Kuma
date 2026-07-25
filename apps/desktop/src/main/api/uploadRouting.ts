@@ -6,6 +6,7 @@ import { uuidSchema } from '@foldersync/contracts';
 import { ENDPOINTS } from '@foldersync/protocol';
 import { isTerminalPrepareState, type Repositories } from '../db/index.ts';
 import { stagingDirPath } from '../storage/layout.ts';
+import type { CommitCoordinator } from '../sync/commitCoordinator.ts';
 import { ApiError } from './errors.ts';
 
 // Folds @tus/server into the authenticated control server (spec 18.4/18.5). The
@@ -23,6 +24,9 @@ import { ApiError } from './errors.ts';
 export interface UploadRoutingContext {
   repositories: Repositories;
   now: () => Date;
+  // When present, a finished upload is handed to the commit pipeline; otherwise it
+  // rests in the `uploaded` state.
+  commitCoordinator?: CommitCoordinator;
 }
 
 // Parses the tus `Upload-Metadata` header: comma-separated `key <base64value>`
@@ -68,9 +72,12 @@ export function registerUploadRoutes(app: FastifyInstance, ctx: UploadRoutingCon
         return Promise.resolve({});
       },
       onUploadFinish: (_req, upload) => {
-        // Bytes fully received; commit (verify -> hash -> atomic rename) is driven
-        // by the commit slice that consumes 'uploaded' prepares.
+        // Bytes fully received. Mark uploaded, then hand off to the commit pipeline
+        // (verify -> hash -> atomic rename -> persist version) off the request path,
+        // so the tus 204 is not held for a multi-gigabyte hash. The phone polls
+        // prepare status for the terminal outcome (spec 18.5 step 10).
         repositories.files.setPrepareState(upload.id, 'uploaded');
+        void ctx.commitCoordinator?.schedule(upload.id);
         return Promise.resolve({});
       },
     });

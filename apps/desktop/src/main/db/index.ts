@@ -7,8 +7,7 @@ export {
   isTerminalPrepareState,
   type FilesRepository,
   type CreatePrepareInput,
-  type InsertRemoteFileInput,
-  type InsertRemoteVersionInput,
+  type RecordCommittedVersionInput,
 } from './repositories/index.ts';
 export type {
   DesktopIdentityRow,
