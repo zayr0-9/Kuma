@@ -23,6 +23,51 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T15:35+0100 — feature/phase1-pairing-completion — Pairing-completion push, main→renderer (spec 24.3/20.1)
+
+- **Done:** a completed pairing now reaches the UI live, retiring the manual Refresh. The
+  control server takes an optional `onPairingComplete(event)` callback, fired **only on a
+  successful `POST /v1/pair`** — after the secret is consumed and the device persisted —
+  with the phone's public identity only (`{deviceId, displayName, pairedAt}`); the issued
+  token and the pairing secret never enter the event (spec 20.1). `backend.ts` fans it
+  out through a plain listener `Set` (`backend.onPairingComplete(listener)` returns an
+  unsubscribe; keeps the backend electron-free). `main/ui/ipc.ts` subscribes and
+  `webContents.send`s `pairing:completed` to every window, unsubscribing on dispose.
+  Preload exposes `folderSync.pairing.onPaired(listener) → unsubscribe`, stripping the
+  `IpcRendererEvent` so the renderer only ever sees the payload. `PairingPanel` swaps the
+  QR for **"Paired with {name}. Add a folder below to back it up."**; `DestinationsPanel`
+  refreshes on the same event (manual Refresh kept as a fallback). Shared DTO
+  `PairingCompletedEvent` + the `completed` channel added to `src/shared/pairing.ts`. 2
+  new tests (controlServer: fires with the exact payload and asserts the serialised event
+  contains neither the token nor the secret on success; stays silent on a wrong-secret
+  and a malformed pair). 177 desktop / 249 workspace green; lint/typecheck/format clean.
+  **Verified by a real `pnpm build`** (preload emits `pairing:completed`).
+- **Design call:** the push is a one-way main→renderer event, distinct from the
+  `invoke`-style request bridges — the backend stays electron-free by emitting to a
+  listener set, and the only electron-aware piece (`webContents.send`) lives in the IPC
+  glue. Fired post-persist so the renderer's refresh always sees the new device. The
+  **manual-code** pairing fallback stays deferred (it would expose a typeable secret to
+  the renderer, against the governing hard rule — needs a short-code scheme first).
+- **Files:** `apps/desktop/src/shared/pairing.ts` (`completed` channel +
+  `PairingCompletedEvent`), `apps/desktop/src/main/api/controlServer.ts`
+  (`onPairingComplete` context + fire in pair route),
+  `apps/desktop/src/main/backend.ts` (listener set + `onPairingComplete`),
+  `apps/desktop/src/main/ui/ipc.ts` (subscribe + `webContents.send`),
+  `apps/desktop/src/preload/index.ts` (`onPaired`),
+  `apps/desktop/src/renderer/src/{PairingPanel.tsx,DestinationsPanel.tsx,env.d.ts}`,
+  `apps/desktop/test/controlServer.test.ts`.
+- **PR:** branch `feature/phase1-pairing-completion` pushed — open + squash-merge.
+- **Docs updated:** `agent_design.md` §7 (pairing-completion built + wording),
+  `agent_desktop.md` (pairing-completion state, trimmed "not yet built"), this record.
+- **Follow-ups:** the renderer push round trip (QR → "Paired with {name}" + destinations
+  auto-refresh) is owed a manual launch — the emit seam is unit-tested, the
+  `webContents.send`/`onPaired`/React wiring is not (same boundary as the other UI
+  slices). Next surfaces: the **history/events** view (spec §5 event rows — needs an
+  `event_log` repo + IPC), the **manual-code** pairing fallback (short-code scheme), and
+  destination **rename/remove** + phone-folder policy editing. Also open: safeStorage key
+  wrapping, `Upload-Length` vs `expected_size`, periodic staging GC, a hash-worker pool,
+  and splitting `controlServer.ts` into `api/routes/*` in the next slice that touches it.
+
 ### 2026-07-25T14:42+0100 — feature/phase1-desktop-ui-last-synced — Last-synced on the destination card (spec 25.2, design §5)
 
 - **Done:** completes the §5 destination-card fields. A bound destination now shows

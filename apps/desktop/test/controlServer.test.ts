@@ -21,6 +21,7 @@ import { createControlServer } from '../src/main/api/controlServer.ts';
 import { createPairingWindow, type PairingWindow } from '../src/main/auth/pairingWindow.ts';
 import { generateDesktopIdentity, type DesktopIdentity } from '../src/main/auth/identity.ts';
 import { hashToken } from '../src/main/auth/token.ts';
+import type { PairingCompletedEvent } from '../src/shared/pairing.ts';
 
 // Integration proof for the control-server slice (spec 24, 25): a real TLS request
 // against the pinned desktop identity, exercising the request-id / protocol /
@@ -43,6 +44,9 @@ let identity: DesktopIdentity;
 let app: FastifyInstance;
 let baseUrl: string;
 let pairingWindow: PairingWindow;
+// Captures the onPairingComplete pushes so a test can assert the payload (and its
+// absence on failure); reset each run.
+let pairingEvents: PairingCompletedEvent[];
 // Mutable so a single test can simulate a nearly-full volume; reset each run.
 let freeSpaceBytes: number;
 // When set, freeSpace rejects — simulates an unplugged/unreadable destination volume.
@@ -111,11 +115,13 @@ beforeEach(async () => {
 
   freeSpaceBytes = Number.MAX_SAFE_INTEGER;
   freeSpaceError = null;
+  pairingEvents = [];
   app = createControlServer({
     tls: { key: identity.privateKeyPem, cert: identity.certificatePem },
     identity: { deviceId: identity.deviceId, name: 'Karn-PC' },
     repositories,
     pairingWindow,
+    onPairingComplete: (event) => pairingEvents.push(event),
     freeSpace: () =>
       freeSpaceError !== null ? Promise.reject(freeSpaceError) : Promise.resolve(freeSpaceBytes),
     now: () => new Date(CLOCK),
@@ -236,6 +242,28 @@ describe('POST /v1/pair', () => {
       [HEADER_PROTOCOL]: '1',
     });
     expect(authed.status).toBe(200);
+  });
+
+  it('notifies onPairingComplete with the paired identity and no secret on success', async () => {
+    pairingWindow.open();
+    const paired = pairResponseSchema.parse(
+      (await call('POST', '/v1/pair', JSON_HEADERS, pairBody())).json(),
+    );
+
+    expect(pairingEvents).toEqual([
+      { deviceId: PHONE_UUID, displayName: 'Pixel 8', pairedAt: CLOCK },
+    ]);
+    // The push must never carry the issued token or the pairing secret.
+    const serialised = JSON.stringify(pairingEvents);
+    expect(serialised).not.toContain(paired.deviceToken);
+    expect(serialised).not.toContain(KNOWN_SECRET);
+  });
+
+  it('does not notify onPairingComplete when pairing fails', async () => {
+    pairingWindow.open();
+    await call('POST', '/v1/pair', JSON_HEADERS, pairBody({ secret: 'B'.repeat(43) }));
+    await call('POST', '/v1/pair', JSON_HEADERS, JSON.stringify({ nonsense: true }));
+    expect(pairingEvents).toEqual([]);
   });
 
   it('rejects a wrong secret without pairing', async () => {

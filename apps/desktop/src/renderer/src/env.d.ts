@@ -1,4 +1,4 @@
-import type { PairingPresentation } from '../../shared/pairing.ts';
+import type { PairingCompletedEvent, PairingPresentation } from '../../shared/pairing.ts';
 import type {
   AddDestinationRequest,
   AddDestinationResult,
@@ -22,6 +22,7 @@ declare global {
       pairing: {
         start: () => Promise<PairingPresentation>;
         cancel: () => Promise<void>;
+        onPaired: (listener: (event: PairingCompletedEvent) => void) => () => void;
       };
       devices: {
         list: () => Promise<DeviceSummary[]>;

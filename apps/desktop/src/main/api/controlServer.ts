@@ -28,6 +28,7 @@ import {
   type RootMappingRow,
 } from '../db/index.ts';
 import type { PairingWindow } from '../auth/pairingWindow.ts';
+import type { PairingCompletedEvent } from '../../shared/pairing.ts';
 import type { CommitCoordinator } from '../sync/commitCoordinator.ts';
 import { generateBearerToken, hashToken } from '../auth/token.ts';
 import { createDeleteService } from '../sync/deleteService.ts';
@@ -60,6 +61,10 @@ export interface ControlServerContext {
   repositories: Repositories;
   // Managed by the main process; POST /v1/pair consumes its one-time secret.
   pairingWindow: PairingWindow;
+  // Notified after a phone successfully pairs, so the main process can push the news
+  // to the renderer (retiring the manual Refresh). Fired only on success, with the
+  // paired device's public identity — never the token or secret.
+  onPairingComplete?: (event: PairingCompletedEvent) => void;
   // Free bytes available on a destination volume, used by the prepare disk-space
   // gate (spec 22.2). Injectable so insufficient_space is deterministic in tests;
   // defaults to statfs on the destination root.
@@ -195,11 +200,19 @@ export function createControlServer(context: ControlServerContext): FastifyInsta
       });
     }
     const token = generateBearerToken();
+    const pairedAt = now().toISOString();
     repositories.devices.recordPairing({
       phoneDeviceId: body.deviceId,
       phoneDisplayName: body.deviceName,
       tokenHash: hashToken(token),
-      pairedAt: now().toISOString(),
+      pairedAt,
+    });
+    // After the secret is consumed and the device is persisted — never on a failed
+    // attempt. The token stays local to this handler; only public identity is emitted.
+    context.onPairingComplete?.({
+      deviceId: body.deviceId,
+      displayName: body.deviceName,
+      pairedAt,
     });
     return Promise.resolve(
       pairResponseSchema.parse({

@@ -299,9 +299,25 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   `Date.now()`-injected, unit-tested; relative per §4, absolute stays in
   history/diagnostics). 5 new tests (statusController last-synced; formatRelativeTime
   matrix). 175 desktop / 247 workspace green. **Verified by a real `pnpm build`**.
-- Not yet built: the **manual-code** pairing fallback and live **pairing-completion
-  feedback** (main→renderer push on a successful pair; the destinations panel offers a
-  manual Refresh meanwhile); destination **rename/remove** and
+- **Pairing-completion push built** (spec 24.3/20.1): a completed `POST /v1/pair` now
+  notifies the renderer. The control server takes an optional
+  `onPairingComplete(event)` callback fired **only on success**, after the secret is
+  consumed and the device persisted, with the phone's public identity
+  (`{deviceId, displayName, pairedAt}`) — never the token or secret. `backend.ts` fans
+  it out through a plain listener set (`backend.onPairingComplete(listener) →
+unsubscribe`, keeping the backend electron-free); `main/ui/ipc.ts` subscribes and
+  `webContents.send`s `pairing:completed` to every window, unsubscribing on dispose.
+  Preload exposes `folderSync.pairing.onPaired(listener) → unsubscribe` (strips the
+  `IpcRendererEvent`, so the renderer sees only the payload). `PairingPanel` swaps the QR
+  for **"Paired with {name}…"**; `DestinationsPanel` refreshes on the same event, so a
+  newly paired phone appears without the manual Refresh (kept as a fallback). Shared DTO
+  `PairingCompletedEvent` + the `completed` channel in `src/shared/pairing.ts`. 2 new
+  tests (controlServer: fires with the right payload and no token/secret on success;
+  silent on a failed or malformed pair). 177 desktop / 249 workspace green. **Verified by
+  a real `pnpm build`** (preload emits `pairing:completed`).
+- Not yet built: the **manual-code** pairing fallback (would expose a typeable secret to
+  the renderer — against the hard rule; revisit with a short-code scheme); destination
+  **rename/remove** and
   the phone-folder policy editing; enforcing `Upload-Length` against the prepare's
   `expected_size`;
   periodic (not just startup) staging GC; commit crash-recovery re-derivation through

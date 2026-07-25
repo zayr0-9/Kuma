@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { BrowserWindow, ipcMain } from 'electron';
 import { PAIRING_CHANNELS } from '../../shared/pairing.ts';
 import type { Backend } from '../backend.ts';
 import { resolveLanHost } from '../net/lanHost.ts';
@@ -24,7 +24,16 @@ export function registerPairingIpc(backend: Backend): () => void {
     controller.cancel();
   });
 
+  // Push a completed pairing to every open window so the pairing panel can show
+  // success and the destinations panel can refresh without the manual button.
+  const unsubscribe = backend.onPairingComplete((event) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(PAIRING_CHANNELS.completed, event);
+    }
+  });
+
   return () => {
+    unsubscribe();
     ipcMain.removeHandler(PAIRING_CHANNELS.start);
     ipcMain.removeHandler(PAIRING_CHANNELS.cancel);
   };

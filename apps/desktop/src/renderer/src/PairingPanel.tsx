@@ -10,6 +10,7 @@ type Status =
   | { kind: 'idle' }
   | { kind: 'starting' }
   | { kind: 'active'; presentation: PairingPresentation }
+  | { kind: 'paired'; deviceName: string }
   | { kind: 'error' };
 
 function remainingLabel(expiresAt: string, nowMs: number): string {
@@ -32,6 +33,14 @@ export function PairingPanel(): ReactElement {
     const id = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(id);
   }, [status.kind]);
+
+  // Main pushes when a phone finishes pairing: switch from the QR to a success line.
+  useEffect(() => {
+    if (!bridge) return;
+    return bridge.onPaired((event) => {
+      setStatus({ kind: 'paired', deviceName: event.displayName });
+    });
+  }, [bridge]);
 
   const start = useCallback(async () => {
     if (!bridge) return;
@@ -64,6 +73,9 @@ export function PairingPanel(): ReactElement {
       )}
       {status.kind === 'error' && (
         <p>Could not start pairing. Check the desktop logs and try again.</p>
+      )}
+      {status.kind === 'paired' && (
+        <p>Paired with {status.deviceName}. Add a folder below to back it up.</p>
       )}
       {status.kind === 'active' ? (
         <div>
