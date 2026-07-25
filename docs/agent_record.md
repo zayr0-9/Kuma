@@ -67,12 +67,21 @@ Entries are ordered newest-first.
 - **PR:** branch `spike/2-foreground-service` pushed — open + squash-merge.
 - **Docs updated:** `agent_native.md` (service + manifest state), `agent_mobile.md`
   (`module.ts`/`service.ts` + service harness + SpikeButton), new ADR, this record.
-- **Follow-ups:** an EAS development build was started after push — verify it goes green
-  (this is the first compile of the SAF + service Kotlin; expect iteration on gradle/manifest
-  merge), install the APK on the Samsung, run **both** spike harnesses and record spike-1 and
-  spike-2 pass conditions in their ADRs. Next Android spike: **5 (tus direct URI upload)**.
-  Then the scan engine + Room DB (spec 16/17) and the phone's Phase-1 wiring
-  (pair → pick → scan → upload → resume → status).
+- **Build update:** first EAS build (`8120ff53`) ERRORED at `processDebugManifest` — the
+  library manifest comment contained `expo prebuild --clean`, and a literal `--` is illegal
+  inside an XML comment (ManifestMerger2 parse error). Fixed in commit `8adf0e1` (reworded
+  the comment; also moved `@Suppress("DEPRECATION")` to function scope). **Rebuild
+  `32305140` is GREEN** — the first successful compile of ALL native Kotlin (SAF spike 1 +
+  service spike 2). APK:
+  `https://expo.dev/artifacts/eas/pfQOybazK0rCqrLB5mWSiYlG3dIBlnb2QUEKxgN_aB8.apk`.
+  Lesson: never put `--` inside an XML comment in a library manifest.
+- **Follow-ups:** install the green APK on the Samsung and run **both** spike harnesses from
+  the home screen — record spike-1 (restart/reboot persistence, ~10k-file traverse time,
+  controlled delete) and spike-2 (background/swipe-away/process-kill coherence, Android
+  version + Samsung battery behaviour) pass conditions in their ADRs. The dev client carries
+  both spikes, so this also closes spike 1's device checklist. Next Android spike: **5 (tus
+  direct URI upload)**. Then the scan engine + Room DB (spec 16/17) and the phone's Phase-1
+  wiring (pair → pick → scan → upload → resume → status).
 
 ### 2026-07-25T18:45+0100 — spike/1-saf-persistence-traversal — Spike 1: SAF persistence + traversal (Android half implemented)
 
