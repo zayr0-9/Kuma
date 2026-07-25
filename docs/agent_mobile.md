@@ -31,7 +31,17 @@ boundary), 32.2 (EAS workflow). UI changes also require
 
 ## Current state
 
-- Not yet scaffolded. Phase 0 (spec 36) creates the Expo skeleton with Expo Router.
+- Skeleton in place: Expo SDK 57.0.8 (the spec baseline), React Native 0.86,
+  Expo Router (`app/_layout.tsx` + `app/index.tsx`), `expo-dev-client`,
+  `app.config.ts` (android package placeholder `dev.zayr.foldersync`), monorepo
+  `metro.config.js`, `eas.json` with the development profile. Verified headlessly
+  via `expo export --platform android` (Hermes bundle builds).
+- `src/native/index.ts` is the required import path for native calls; it handles
+  the module-not-linked state (`requireOptionalNativeModule` returns null on a
+  stale dev client). No EAS build has been run yet — first `eas build --profile
+development` needs `eas login` (personal Expo account).
+- expo-* dependencies use Expo's `~` ranges on purpose (managed by
+  `expo install --fix`); everything else stays exact-pinned.
 
 ## Update this file when
 

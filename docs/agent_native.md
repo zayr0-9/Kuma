@@ -36,8 +36,15 @@ fixtures in `packages/test-fixtures` (see [`agent_protocol.md`](agent_protocol.m
 
 ## Current state
 
-- Not yet scaffolded. Spikes 1, 2 and 5 (spec 35) land here first, before any broad
-  implementation.
+- Skeleton in place: `expo-module.config.json`, library `build.gradle` following
+  the create-expo-module local template, empty library `AndroidManifest.xml`
+  (future home of service/permission declarations, spec 33.6), and
+  `FolderSyncModule.kt` exposing only `ping()`. TS surface in `src/index.ts` via
+  `requireOptionalNativeModule` (null on stale dev clients).
+- **The Kotlin/Gradle side has never been compiled** — no Android toolchain on
+  this machine by design (spec 32.1). The first EAS development build is the
+  verification of the gradle wiring; expect iteration there.
+- Spikes 1, 2 and 5 (spec 35) land here next, before any broad implementation.
 
 ## Update this file when
 

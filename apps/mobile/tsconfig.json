@@ -1,0 +1,11 @@
+{
+  "extends": ["expo/tsconfig.base", "../../tsconfig.base.json"],
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    // React Native / Expo type packages do not pass full lib checks; the base
+    // config keeps lib checking on for pure-TS packages.
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["app/**/*", "src/**/*", "app.config.ts", ".expo/types/**/*.ts", "expo-env.d.ts"]
+}

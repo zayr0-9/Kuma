@@ -23,6 +23,27 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T03:20+0100 — feature/phase0-mobile-native-skeleton — Mobile + native module skeletons
+
+- **Done:** `apps/mobile` Expo SDK 57.0.8 skeleton (Expo Router, expo-dev-client,
+  app.config.ts, monorepo metro.config.js, eas.json development profile) and
+  `modules/foldersync-native` Expo module skeleton (expo-module.config.json,
+  library build.gradle, `FolderSyncModule.kt` with `ping()`, TS surface via
+  `requireOptionalNativeModule`). Typed native wrapper at
+  `apps/mobile/src/native/`. Verified: typecheck, eslint, prettier, and a headless
+  `expo export --platform android` (Hermes bundle builds through the monorepo
+  metro config). eslint config gained CommonJS globals for config files and
+  ignores `.expo/`.
+- **Files:** `apps/mobile/**`, `modules/foldersync-native/**`, `eslint.config.mjs`.
+- **PR:** none possible yet (no remote) — squash-merged locally to `main`, branch deleted.
+- **Docs updated:** `agent_mobile.md`, `agent_native.md` (current state), this record.
+- **Follow-ups:** Kotlin/Gradle never compiled (no local toolchain) — the first
+  `eas build --platform android --profile development` verifies it and needs
+  `eas login` with the personal Expo account. Android package id
+  `dev.zayr.foldersync` is a placeholder. Phase 0 is now complete except CI has
+  never run (no remote); next: Spike 6 (desktop staging → hash → atomic commit)
+  or the EAS build to validate the native chain.
+
 ### 2026-07-25T03:06+0100 — feature/phase0-desktop-skeleton — Desktop skeleton + path safety
 
 - **Done:** `apps/desktop` electron-vite skeleton (Electron 43.2.0 — the spec's

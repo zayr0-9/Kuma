@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2022"],
+    "types": [],
+    // expo-modules-core ships React Native types that do not pass full lib checks
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src"]
+}

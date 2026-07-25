@@ -1,0 +1,17 @@
+{
+  "name": "foldersync-native",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Kotlin sync core: SAF access, Room state, foreground service, discovery, tus uploads (spec sections 12-19)",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "expo": "*",
+    "expo-modules-core": "*"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

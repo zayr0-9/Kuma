@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- Service and permission declarations land here with the foreground-service
+       work (spec 14.2, 33.6). The library manifest is their source of truth, not
+       generated app manifests. -->
+</manifest>

@@ -3,7 +3,13 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/out/**', 'engineering-taste/**'],
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/out/**',
+      '**/.expo/**',
+      'engineering-taste/**',
+    ],
   },
   {
     files: ['**/*.ts', '**/*.tsx'],
@@ -20,7 +26,21 @@ export default tseslint.config(
     },
   },
   {
-    files: ['**/*.{js,mjs,cjs}'],
+    files: ['**/*.mjs'],
     extends: [js.configs.recommended],
+  },
+  {
+    // CommonJS config files (metro.config.js, babel configs)
+    files: ['**/*.{js,cjs}'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: {
+        module: 'writable',
+        require: 'readonly',
+        __dirname: 'readonly',
+        process: 'readonly',
+      },
+    },
   },
 );

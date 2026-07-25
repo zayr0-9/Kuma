@@ -1,0 +1,22 @@
+// Follows the create-expo-module local-module template. Not compilable on this
+// machine (no Android toolchain — spec 32.1); the first EAS development build is
+// the verification.
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+group = 'expo.modules.foldersync'
+version = '0.0.0'
+
+def expoModulesCorePlugin = new File(project(':expo-modules-core').projectDir.absolutePath, 'ExpoModulesCorePlugin.gradle')
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+
+android {
+  namespace 'expo.modules.foldersync'
+  defaultConfig {
+    versionCode 1
+    versionName '0.0.0'
+  }
+}
