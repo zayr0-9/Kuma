@@ -108,6 +108,18 @@ the same PR.
   now; revisit with a short-code scheme), and live **pairing-completion feedback** (a
   main→renderer push when a phone actually pairs) — the panel shows the code and expiry
   only.
+- **Desktop destinations surface built** (spec 25.2): `DestinationsPanel`
+  (`apps/desktop/src/renderer/src/DestinationsPanel.tsx`) lists each paired phone (by
+  display name) and the folders on this desktop it backs up into. A destination is added
+  with the native folder picker (opened in main) and starts unbound — shown as
+  **"Waiting for a phone folder"** until the phone links one (**"Linked to a phone
+  folder"**). Canonical wording: heading **"Destinations"**, actions **"Add folder"** and
+  **"Refresh"**; empty states **"No destinations yet."** and, with no devices, **"Pair a
+  phone first, then add folders on this desktop to back it up into."**; the overlap error
+  reads **"That folder overlaps a destination you already added."** The §5
+  destination-card fields beyond name / path / status (policies, last synced, pending
+  count) arrive with the sync-status UI. There is no push yet, so the panel offers a
+  manual **Refresh** to pick up a newly paired phone.
 - Colour tokens / `packages/ui`: still deferred (spec 10.1 — land shared presentational
   pieces when a second surface needs them). The pairing panel uses semantic HTML and
   structural layout only; no hard-coded colours yet.

@@ -43,6 +43,9 @@ export interface Backend {
   displayName: string;
   // Exposed so the desktop UI can open a pairing window and render its QR.
   pairingWindow: PairingWindow;
+  // Exposed for the main-process UI/IPC layer (devices + destinations management). This
+  // never crosses to the renderer — the preload surfaces only narrow named methods.
+  repositories: Repositories;
   close(): Promise<void>;
 }
 
@@ -98,6 +101,7 @@ export async function startBackend(config: BackendConfig): Promise<Backend> {
     spkiSha256: identity.spkiSha256,
     displayName: config.displayName,
     pairingWindow,
+    repositories,
     close: async () => {
       if (advertiser !== null) await advertiser.stop();
       await app.close();

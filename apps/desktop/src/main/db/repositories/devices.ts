@@ -38,6 +38,8 @@ export interface DevicesRepository {
   // so an indexed equality lookup leaks nothing exploitable; revoked rows are
   // excluded here rather than in the caller.
   findActiveByTokenHash(tokenHash: string): PairedDeviceRow | null;
+  // Every non-revoked pairing, newest first — the desktop management UI's device list.
+  listActive(): PairedDeviceRow[];
   touchLastSeen(phoneDeviceId: string, at: string): void;
   revoke(phoneDeviceId: string, at: string): void;
 }
@@ -62,6 +64,9 @@ export function createDevicesRepository(db: Database): DevicesRepository {
   const byTokenStmt = db.prepare(
     'SELECT * FROM paired_device WHERE token_hash = ? AND revoked_at IS NULL',
   );
+  const listActiveStmt = db.prepare(
+    'SELECT * FROM paired_device WHERE revoked_at IS NULL ORDER BY paired_at DESC',
+  );
   const touchStmt = db.prepare(
     'UPDATE paired_device SET last_seen_at = ? WHERE phone_device_id = ?',
   );
@@ -83,6 +88,11 @@ export function createDevicesRepository(db: Database): DevicesRepository {
     },
     getByDeviceId: (phoneDeviceId) => mapRow(byIdStmt.get(phoneDeviceId)),
     findActiveByTokenHash: (tokenHash) => mapRow(byTokenStmt.get(tokenHash)),
+    listActive: () =>
+      listActiveStmt
+        .all()
+        .map(mapRow)
+        .filter((row): row is PairedDeviceRow => row !== null),
     touchLastSeen: (phoneDeviceId, at) => {
       touchStmt.run(at, phoneDeviceId);
     },

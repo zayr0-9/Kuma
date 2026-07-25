@@ -250,11 +250,32 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   (2 lanHost, 1 QR render, 3 controller); 155 desktop green. **Verified by a real
   `pnpm build`** (preload emits the channels, main keeps qrcode external, built HTML
   carries the new CSP).
+- **Desktop destinations UI built** (spec 25.2/12.5): the renderer gets a
+  `DestinationsPanel` listing each paired phone and the folders on this desktop it backs
+  up into; a destination is added via the native folder picker and starts unbound until
+  the phone links a folder (`bound` ← `phone_root_id`). The logic lives in an
+  electron-free `main/ui/destinationsController.ts` (`createDestinationsController` —
+  `listDevices`/`listDestinations`/`addDestination`, unit-tested): `addDestination`
+  validates the destination is an absolute path and the device is paired, then runs the
+  **destination-overlap check at creation** (`findDestinationOverlap`, spec 12.5 — the
+  register endpoint enforces it again for the wire) and `roots.create`s the mapping
+  (display name defaults to the folder basename). `main/ui/destinationsIpc.ts`
+  (`registerDestinationsIpc`) is the electron glue: `devices:list`, `destinations:list`,
+  `destinations:pickFolder` (`dialog.showOpenDialog`, `openDirectory`/`createDirectory`)
+  and `destinations:add`; disposed on quit. New repo methods `devices.listActive()` and
+  `roots.list()`; `backend.ts` now exposes `repositories` to the main-process UI layer
+  (never to the renderer). Preload exposes `folderSync.devices.list` and
+  `folderSync.destinations.{list,pickFolder,add}`; shared DTOs/channels in
+  `src/shared/destinations.ts`. 7 new tests (destinationsController matrix: create,
+  overlap, unknown device, invalid path, explicit name, bound reflection, active-device
+  list). 162 desktop / 234 workspace green. **Verified by a real `pnpm build`** (preload
+  emits the new channels).
 - Not yet built: the **manual-code** pairing fallback and live **pairing-completion
-  feedback** (main→renderer push on a successful pair) — the panel shows the QR + expiry
-  only; the desktop **destinations UI** (destination picker → `roots.create` with an
-  overlap check at creation time; mappings need a paired device by FK, so this follows
-  pairing); enforcing `Upload-Length` against the prepare's `expected_size`;
+  feedback** (main→renderer push on a successful pair; the destinations panel offers a
+  manual Refresh meanwhile); the **sync-status UI** (per-destination free space, pending
+  counts, policies on the destination card — spec §5); destination **rename/remove** and
+  the phone-folder policy editing; enforcing `Upload-Length` against the prepare's
+  `expected_size`;
   periodic (not just startup) staging GC; commit crash-recovery re-derivation through
   the service (commit.ts already handles it with a recorded sha); failed-auth /
   pairing **rate limiting** (spec 24.6, deferred — 256-bit secret + hashed tokens make
@@ -263,9 +284,10 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   `api/routes/*` registrars. `GET /v1/device` still reads the in-memory identity
   summary. A packaged/preview launch **boots** (the user verified `electron-vite
 preview`: the renderer renders, Electron 43.2.0 / Node 24.18.0) — still owed by a
-  manual launch: the pairing panel actually rendering its QR + the `pairing:*` IPC round
-  trip, and the worker path spawned in the packaged process via a real commit. The
-  builds are verified; those runtime paths are not.
+  manual launch: the pairing panel rendering its QR + the `pairing:*` round trip, the
+  destinations panel's folder picker + `destinations:*` / `devices:*` round trips, and
+  the worker path spawned in the packaged process via a real commit. The builds are
+  verified; those runtime paths are not.
 
 ## Update this file when
 

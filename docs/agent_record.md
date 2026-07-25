@@ -23,6 +23,49 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T14:17+0100 — feature/phase1-desktop-ui-destinations — Desktop destinations UI + overlap-at-creation (spec 25.2/12.5)
+
+- **Done:** the desktop can now add destinations. `DestinationsPanel`
+  (`renderer/src/DestinationsPanel.tsx`) lists each paired phone and the folders on this
+  desktop it backs up into; "Add folder" opens the native picker, and a destination
+  starts unbound ("Waiting for a phone folder") until the phone links one. Logic lives in
+  electron-free `main/ui/destinationsController.ts` (`createDestinationsController`:
+  `listDevices` / `listDestinations` / `addDestination`, unit-tested): `addDestination`
+  requires an absolute path + a paired device, runs the **destination-overlap check at
+  creation** (`findDestinationOverlap`, spec 12.5 — closing the long-standing TODO; the
+  register endpoint still enforces it for the wire), then `roots.create`s the mapping
+  (display name defaults to the folder basename). `main/ui/destinationsIpc.ts`
+  (`registerDestinationsIpc`) is the electron glue — `devices:list`, `destinations:list`,
+  `destinations:pickFolder` (`dialog.showOpenDialog`) and `destinations:add`, disposed on
+  quit. New repo methods `devices.listActive()` and `roots.list()`; `backend.ts` exposes
+  `repositories` to the main-process UI layer (never the renderer). Preload adds
+  `folderSync.devices.list` and `folderSync.destinations.{list,pickFolder,add}`; shared
+  DTOs/channels in `src/shared/destinations.ts`. 7 new tests (create, overlap, unknown
+  device, invalid path, explicit name, bound reflection, active-device list); 162 desktop
+  / 234 workspace green; lint/typecheck/format clean. **Verified by a real `pnpm build`**
+  (preload emits the new channels).
+- **Design call:** destinations attach to a paired phone (root_mapping FK), so the panel
+  is device-first: no devices → prompts to pair. No push events yet, so the panel offers
+  a manual **Refresh** to pick up a newly paired phone (interim until pairing-completion
+  feedback lands).
+- **Files:** `apps/desktop/src/shared/destinations.ts` (new),
+  `apps/desktop/src/main/ui/{destinationsController,destinationsIpc}.ts` (new),
+  `apps/desktop/src/main/db/repositories/{devices,roots}.ts` (list methods),
+  `apps/desktop/src/main/backend.ts` (expose repositories),
+  `apps/desktop/src/main/index.ts` (register IPC), `apps/desktop/src/preload/index.ts`,
+  `apps/desktop/src/renderer/**` (App/DestinationsPanel/env.d.ts),
+  `apps/desktop/test/destinationsController.test.ts` (new).
+- **PR:** branch `feature/phase1-desktop-ui-destinations` pushed — open + squash-merge.
+- **Docs updated:** `agent_design.md` §7 (destinations surface + wording),
+  `agent_desktop.md` (destinations UI/IPC state, trimmed "not yet built"), this record.
+- **Follow-ups:** the **sync-status UI** (wire `GET /v1/sync/status` / a status IPC into
+  the destination cards: free space, pending counts, policies — spec §5); pairing-
+  completion push + manual-code fallback; destination rename/remove + phone-folder
+  policy editing; safeStorage key wrapping; `Upload-Length` vs `expected_size`; periodic
+  staging GC; a hash-worker pool; the manual packaged-app launch (pairing QR, folder
+  picker + `destinations:*`/`devices:*` round trips, worker via a real commit). Split
+  `controlServer.ts` into `api/routes/*` in the next slice that touches it.
+
 ### 2026-07-25T14:06+0100 — feature/phase1-desktop-ui-pairing — Desktop pairing UI: QR rendered in main (spec 24.3/20.1)
 
 - **Done:** the first real renderer feature. `PairingPanel`

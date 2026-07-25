@@ -59,6 +59,9 @@ export interface RootsRepository {
   bind(input: BindRootMappingInput): void;
   listDestinations(): RootDestination[];
   listByDevice(phoneDeviceId: string): RootMappingRow[];
+  // Every mapping, newest first — the flat device-agnostic view the desktop
+  // destinations UI renders (listByDevice scopes to one phone).
+  list(): RootMappingRow[];
 }
 
 export function createRootsRepository(db: Database): RootsRepository {
@@ -83,6 +86,7 @@ export function createRootsRepository(db: Database): RootsRepository {
   `);
   const destinationsStmt = db.prepare('SELECT mapping_id, destination_root FROM root_mapping');
   const byDeviceStmt = db.prepare('SELECT * FROM root_mapping WHERE phone_device_id = ?');
+  const listStmt = db.prepare('SELECT * FROM root_mapping ORDER BY created_at DESC');
 
   return {
     create: (input) => {
@@ -119,6 +123,11 @@ export function createRootsRepository(db: Database): RootsRepository {
     listByDevice: (phoneDeviceId) =>
       byDeviceStmt
         .all(phoneDeviceId)
+        .map(mapRow)
+        .filter((row): row is RootMappingRow => row !== null),
+    list: () =>
+      listStmt
+        .all()
         .map(mapRow)
         .filter((row): row is RootMappingRow => row !== null),
   };
