@@ -1,0 +1,10 @@
+{
+  "requestId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+  "rootId": "c56a4180-65aa-42ec-a945-5fd21dec0538",
+  "fileEntryId": "6ba7b810-9dad-41d1-80b4-00c04fd430c8",
+  "relativePath": "../../etc/passwd",
+  "size": 1,
+  "modifiedAtMs": null,
+  "mimeType": null,
+  "knownRemoteVersionId": null
+}

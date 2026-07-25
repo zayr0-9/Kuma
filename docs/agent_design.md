@@ -7,18 +7,18 @@ governs how they are expressed visually and verbally.
 
 ## 1. Shared vocabulary (canonical terms — never invent synonyms)
 
-| Concept | Canonical term | Never |
-|---|---|---|
-| A phone directory the user selected | **folder** (UI), `root` (code) | "directory", "source" in UI |
-| Where files land on the desktop | **destination** | "target", "output" |
-| The desktop machine | its display name (e.g. "Karn-PC") | "server", "host" in UI |
-| Copying files phone → desktop | **backing up** / **backup** | "syncing" for the one-way flow |
-| `keep_on_phone` policy | **"Keep on phone"** | |
-| `delete_after_verified_backup` policy | **"Delete from phone after verified backup"** | "auto-delete", "clean up" |
-| `preserve_desktop_copy` policy | **"Preserve desktop copies"** | |
-| `mirror_user_deletions` policy | **"Move desktop copy to trash when deleted on phone"** | "mirror", "sync deletions" |
-| Recoverable desktop deletion area | **trash** | "recycle bin", "archive" |
-| A preserved externally-modified file | **conflict copy** | "backup of backup" |
+| Concept                               | Canonical term                                         | Never                          |
+| ------------------------------------- | ------------------------------------------------------ | ------------------------------ |
+| A phone directory the user selected   | **folder** (UI), `root` (code)                         | "directory", "source" in UI    |
+| Where files land on the desktop       | **destination**                                        | "target", "output"             |
+| The desktop machine                   | its display name (e.g. "Karn-PC")                      | "server", "host" in UI         |
+| Copying files phone → desktop         | **backing up** / **backup**                            | "syncing" for the one-way flow |
+| `keep_on_phone` policy                | **"Keep on phone"**                                    |                                |
+| `delete_after_verified_backup` policy | **"Delete from phone after verified backup"**          | "auto-delete", "clean up"      |
+| `preserve_desktop_copy` policy        | **"Preserve desktop copies"**                          |                                |
+| `mirror_user_deletions` policy        | **"Move desktop copy to trash when deleted on phone"** | "mirror", "sync deletions"     |
+| Recoverable desktop deletion area     | **trash**                                              | "recycle bin", "archive"       |
+| A preserved externally-modified file  | **conflict copy**                                      | "backup of backup"             |
 
 Policy wording must make the destructive option sound exactly as destructive as it is —
 never soften "delete" to "clean up" or "tidy".
@@ -28,14 +28,14 @@ never soften "delete" to "clean up" or "tidy".
 One status system across both apps. Map code states to exactly these user-facing labels
 and colour roles:
 
-| User-facing status | Covers (code states) | Colour role |
-|---|---|---|
-| **Idle / Up to date** | `ready`, service `IDLE_*` with nothing pending | neutral/success |
-| **Waiting for desktop** | `DISCOVERING`, `IDLE_DESKTOP_OFFLINE` | neutral (NOT a warning — this is normal) |
-| **Backing up** | `SCANNING`, `UPLOADING`, prepare/verify/commit states | accent/progress |
-| **Paused** | `PAUSED_BY_USER`, paused roots | muted |
-| **Needs attention** | `access_lost`, `PAUSED_ERROR`, cleanup_failed, path_collision, conflicts | warning |
-| **Error** | certificate change, unrecoverable failures | danger |
+| User-facing status      | Covers (code states)                                                     | Colour role                              |
+| ----------------------- | ------------------------------------------------------------------------ | ---------------------------------------- |
+| **Idle / Up to date**   | `ready`, service `IDLE_*` with nothing pending                           | neutral/success                          |
+| **Waiting for desktop** | `DISCOVERING`, `IDLE_DESKTOP_OFFLINE`                                    | neutral (NOT a warning — this is normal) |
+| **Backing up**          | `SCANNING`, `UPLOADING`, prepare/verify/commit states                    | accent/progress                          |
+| **Paused**              | `PAUSED_BY_USER`, paused roots                                           | muted                                    |
+| **Needs attention**     | `access_lost`, `PAUSED_ERROR`, cleanup_failed, path_collision, conflicts | warning                                  |
+| **Error**               | certificate change, unrecoverable failures                               | danger                                   |
 
 Rules:
 

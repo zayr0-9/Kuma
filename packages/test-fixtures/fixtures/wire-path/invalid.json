@@ -1,0 +1,12 @@
+[
+  "",
+  "/absolute/path.jpg",
+  "trailing/",
+  "double//separator.jpg",
+  ".",
+  "..",
+  "../escape.jpg",
+  "a/../b.jpg",
+  "a/./b.jpg",
+  "nul\u0000byte.jpg"
+]

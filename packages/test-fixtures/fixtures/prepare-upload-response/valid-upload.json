@@ -1,0 +1,6 @@
+{
+  "action": "upload",
+  "prepareId": "886313e1-3b8a-4372-9b90-0c9aee199e5d",
+  "tusEndpoint": "/v1/uploads",
+  "expiresAt": "2026-08-01T12:00:00Z"
+}

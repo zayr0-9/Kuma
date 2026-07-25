@@ -17,7 +17,7 @@ cleanup engines), 26–27 (state machines, renames).
   is `access_lost`, never "all files deleted".
 - Deletion invariants (release blockers, spec 34.5): no deletions from failed/partial
   scans; two-scan missing confirmation with the 15-minute floor; retention cleanup is
-  marked expected *before* deleting and never propagates to the desktop; phone-side
+  marked expected _before_ deleting and never propagates to the desktop; phone-side
   SHA-256 must match the desktop hash before any retention deletion (spec 19.2).
 - TLS: pinned trust manager accepting only the paired desktop's key. A trust-all
   manager, even temporarily "for debugging", is forbidden.

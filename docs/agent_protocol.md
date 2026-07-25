@@ -29,8 +29,18 @@ protocol), 34.2 (contract tests).
 
 ## Current state
 
-- Not yet scaffolded. Phase 0 (spec 36) creates these packages with the initial
-  endpoint schemas and fixtures.
+- `@foldersync/protocol`: protocol version (1), header names, endpoint paths,
+  DNS-SD service type/TXT keys, and the error-code list — constants only, no logic.
+- `@foldersync/contracts`: Zod schemas for every spec-25 endpoint (pair, prepare,
+  prepare status, delete, roots/register, health, device, sync status), the two
+  policies + deletion cause enums, the canonical wire-path parser/normaliser
+  (`parseWirePath`, NFC), and the pairing-QR build/parse pair. `fileDeleteRequest`
+  admits only `user_or_external_deletion` at the schema level.
+- `@foldersync/test-fixtures`: 37 golden fixtures across 15 directories, including
+  NFD→NFC and NUL wire-path cases; `fixtures.test.ts` enforces that every fixture
+  directory maps to a schema and has both valid and invalid cases.
+- Not yet done: Kotlin DTO mirrors + their fixture tests (land with the native
+  module); Fastify integration of the schemas (lands with the desktop app).
 
 ## Update this file when
 

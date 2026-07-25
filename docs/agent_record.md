@@ -11,6 +11,7 @@ history lives in git commits and squash-merged PRs.
 
 ```markdown
 ### <ISO timestamp with offset> — <branch> — <short title>
+
 - **Done:** what was completed (outcomes, not intentions)
 - **Files:** key files touched
 - **PR:** #NN (open | squash-merged) — omit for bootstrap/docs-only local work
@@ -22,7 +23,27 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T03:00+0100 — feature/phase0-protocol-contracts — Protocol + contracts packages
+
+- **Done:** `packages/protocol` (version/header/endpoint/error/discovery constants),
+  `packages/contracts` (Zod schemas for all spec-25 endpoints, policy enums, canonical
+  wire-path parser with NFC normalisation, pairing-QR build/parse),
+  `packages/test-fixtures` (37 golden fixtures, 15 directories). 69 tests green;
+  typecheck, eslint (flat config, type-checked rules, `no-explicit-any` error) and
+  prettier all pass. CI workflow added (`.github/workflows/ci.yml`). Exact dependency
+  pins enforced via `saveExact: true` in pnpm-workspace.yaml (pnpm 11 ignores
+  `.npmrc save-exact` — root cause of initial caret ranges).
+- **Files:** `packages/*`, `eslint.config.mjs`, `.prettierignore`,
+  `.github/workflows/ci.yml`, `pnpm-workspace.yaml`, root `package.json`.
+- **PR:** none possible yet (no remote) — squash-merged locally to `main`, branch deleted.
+- **Docs updated:** `agent_protocol.md` (current state), this record.
+- **Follow-ups:** TypeScript pinned to 5.9.3 everywhere — pnpm resolved 7.0.2 (native
+  tsc) for one package before pinning; revisit TS 7 deliberately later. Next Phase-0
+  slices: desktop skeleton (electron-vite + Fastify + path-safety), mobile skeleton
+  (Expo), native module skeleton.
+
 ### 2026-07-25T02:39+0100 — main (bootstrap exception) — Repo and dev-env bootstrap
+
 - **Done:** pnpm workspace root (package.json, pnpm-workspace.yaml, tsconfig.base.json,
   .npmrc save-exact, .prettierrc, .editorconfig, .gitignore); docs/ created with master
   agent.md, this record, agent_design.md, scoped agent_*.md files, and the distilled

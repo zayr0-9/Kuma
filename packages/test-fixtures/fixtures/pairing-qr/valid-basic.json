@@ -1,0 +1,11 @@
+{
+  "payload": "foldersync://pair?v=1&device=1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed&host=192.168.1.20&port=53817&pin=qFyG3x9rTmBvNcW0LkZsPdHaUjE5oXiRwYtK1MnJ8Qb&secret=Zk3tW8pLqRvXyN1cJhGdSbFaUoIeK5mT9wQxYzC0AgH",
+  "parsed": {
+    "version": 1,
+    "deviceId": "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed",
+    "host": "192.168.1.20",
+    "port": 53817,
+    "pin": "qFyG3x9rTmBvNcW0LkZsPdHaUjE5oXiRwYtK1MnJ8Qb",
+    "secret": "Zk3tW8pLqRvXyN1cJhGdSbFaUoIeK5mT9wQxYzC0AgH"
+  }
+}

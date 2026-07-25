@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "flux_capacitor",
+    "message": "nope",
+    "retryable": false
+  }
+}

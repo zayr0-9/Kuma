@@ -47,17 +47,17 @@ area you are changing before any substantial change.
 All project markdown lives in `docs/`. The docs are scoped so no single file becomes a
 dumping ground:
 
-| File | Scope |
-|---|---|
-| [`agent.md`](agent.md) | This file — repo-wide rules. |
-| [`agent_record.md`](agent_record.md) | Rolling 24-hour work log. See rules inside. |
-| [`agent_design.md`](agent_design.md) | Design language: UX/UI consistency across mobile and desktop. Read before ANY UI change. |
-| [`agent_mobile.md`](agent_mobile.md) | `apps/mobile` — Expo/React Native app. |
-| [`agent_native.md`](agent_native.md) | `modules/foldersync-native` — Kotlin module and Android service. |
-| [`agent_desktop.md`](agent_desktop.md) | `apps/desktop` — Electron companion. |
-| [`agent_protocol.md`](agent_protocol.md) | `packages/contracts`, `packages/protocol`, `packages/test-fixtures` — wire contracts. |
-| [`agent_testing.md`](agent_testing.md) | Test strategy and release-blocking invariants. |
-| [`engineering-taste/`](engineering-taste/README.md) | Living rulebook of engineering taste. |
+| File                                                | Scope                                                                                    |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| [`agent.md`](agent.md)                              | This file — repo-wide rules.                                                             |
+| [`agent_record.md`](agent_record.md)                | Rolling 24-hour work log. See rules inside.                                              |
+| [`agent_design.md`](agent_design.md)                | Design language: UX/UI consistency across mobile and desktop. Read before ANY UI change. |
+| [`agent_mobile.md`](agent_mobile.md)                | `apps/mobile` — Expo/React Native app.                                                   |
+| [`agent_native.md`](agent_native.md)                | `modules/foldersync-native` — Kotlin module and Android service.                         |
+| [`agent_desktop.md`](agent_desktop.md)              | `apps/desktop` — Electron companion.                                                     |
+| [`agent_protocol.md`](agent_protocol.md)            | `packages/contracts`, `packages/protocol`, `packages/test-fixtures` — wire contracts.    |
+| [`agent_testing.md`](agent_testing.md)              | Test strategy and release-blocking invariants.                                           |
+| [`engineering-taste/`](engineering-taste/README.md) | Living rulebook of engineering taste.                                                    |
 
 **Rules:**
 

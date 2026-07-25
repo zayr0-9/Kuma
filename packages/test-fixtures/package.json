@@ -1,0 +1,6 @@
+{
+  "name": "@foldersync/test-fixtures",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Golden JSON wire fixtures, dual-validated by the TypeScript schemas and the Kotlin DTOs (spec 34.2)."
+}

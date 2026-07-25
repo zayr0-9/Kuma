@@ -1,0 +1,8 @@
+{
+  "requestId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+  "rootId": "c56a4180-65aa-42ec-a945-5fd21dec0538",
+  "mappingId": "550e8400-e29b-41d4-a716-446655440000",
+  "displayName": "Camera",
+  "phoneRetentionPolicy": "keep_on_phone",
+  "desktopDeletionPolicy": "preserve_desktop_copy"
+}

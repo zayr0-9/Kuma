@@ -9,13 +9,17 @@
     "dev:mobile": "pnpm --filter mobile start --dev-client",
     "dev:desktop": "pnpm --filter desktop dev",
     "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint",
+    "lint": "eslint .",
     "test": "pnpm -r test",
     "build": "pnpm -r build",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "prettier": "^3.6.0",
-    "typescript": "^5.9.0"
+    "@eslint/js": "10.0.1",
+    "eslint": "10.7.0",
+    "prettier": "3.9.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.65.0"
   }
 }

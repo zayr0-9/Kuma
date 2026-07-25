@@ -1,0 +1,26 @@
+[
+  {
+    "input": "Camera/IMG_0001.jpg",
+    "normalized": "Camera/IMG_0001.jpg"
+  },
+  {
+    "input": "Receipts/2026/07/receipt 001.pdf",
+    "normalized": "Receipts/2026/07/receipt 001.pdf"
+  },
+  {
+    "input": "café/menu.txt",
+    "normalized": "café/menu.txt"
+  },
+  {
+    "input": "受領書/スキャン.pdf",
+    "normalized": "受領書/スキャン.pdf"
+  },
+  {
+    "input": "a",
+    "normalized": "a"
+  },
+  {
+    "input": "dot.files/.hidden",
+    "normalized": "dot.files/.hidden"
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "eventId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "rootId": "c56a4180-65aa-42ec-a945-5fd21dec0538",
+  "fileEntryId": "6ba7b810-9dad-41d1-80b4-00c04fd430c8",
+  "relativePath": "Camera/IMG_0001.jpg",
+  "expectedRemoteVersionId": "e902893a-9d22-4ef1-9a89-8df9db6cbabc",
+  "cause": "retention_cleanup"
+}
