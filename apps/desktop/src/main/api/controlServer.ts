@@ -5,6 +5,8 @@ import {
   healthResponseSchema,
   pairRequestSchema,
   pairResponseSchema,
+  rootRegisterRequestSchema,
+  rootRegisterResponseSchema,
   uuidSchema,
 } from '@foldersync/contracts';
 import {
@@ -16,6 +18,7 @@ import {
 import type { PairedDeviceRow, Repositories } from '../db/index.ts';
 import type { PairingWindow } from '../auth/pairingWindow.ts';
 import { generateBearerToken, hashToken } from '../auth/token.ts';
+import { findDestinationOverlap } from '../storage/destinationOverlap.ts';
 import { ApiError, buildErrorResponse } from './errors.ts';
 
 // The desktop control API (spec 25) served over TLS on the pinned desktop identity
@@ -167,6 +170,76 @@ export function createControlServer(context: ControlServerContext): FastifyInsta
         desktopDeviceId: context.identity.deviceId,
         desktopName: context.identity.name,
         protocolVersion: PROTOCOL_VERSION,
+      }),
+    );
+  });
+
+  // POST /v1/roots/register (spec 25.2): binds a phone root to a desktop-approved
+  // mapping. The phone references a mappingId — it can never send an absolute
+  // destination. Rejected with destination_overlap when the mapping's destination
+  // nests with another (spec 12.5).
+  app.post(ENDPOINTS.rootsRegister, (request) => {
+    const device = request.pairedDevice;
+    if (device === null) {
+      throw new ApiError('unauthorised', 'Not authenticated', { httpStatus: 401 });
+    }
+    const parsed = rootRegisterRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new ApiError('bad_request', 'Malformed root registration', { httpStatus: 400 });
+    }
+    const body = parsed.data;
+
+    // The phone may only touch its own mappings (spec 25.1); an unknown or foreign
+    // mapping is reported identically so existence is not leaked.
+    const mapping = repositories.roots.getByMappingId(body.mappingId);
+    if (mapping === null || mapping.phoneDeviceId !== device.phoneDeviceId) {
+      throw new ApiError('root_not_mapped', 'Unknown mapping', { httpStatus: 404 });
+    }
+
+    // A mapping binds to one phone root and a phone root to one mapping. Re-binding
+    // the same pair is the allowed "update" (spec 25.2); other re-pointing is a
+    // conflict, never a silent overwrite.
+    if (mapping.phoneRootId !== null && mapping.phoneRootId !== body.rootId) {
+      throw new ApiError('bad_request', 'Mapping already bound to a different phone root', {
+        httpStatus: 409,
+      });
+    }
+    const existingForRoot = repositories.roots.getByPhoneRoot(device.phoneDeviceId, body.rootId);
+    if (existingForRoot !== null && existingForRoot.mappingId !== body.mappingId) {
+      throw new ApiError(
+        'bad_request',
+        'Phone root already registered to a different destination',
+        {
+          httpStatus: 409,
+        },
+      );
+    }
+
+    const overlap = findDestinationOverlap(
+      mapping.destinationRoot,
+      repositories.roots.listDestinations(),
+      mapping.mappingId,
+    );
+    if (overlap !== null) {
+      throw new ApiError('destination_overlap', 'Destination overlaps an existing mapping', {
+        httpStatus: 409,
+        details: { conflictingMappingId: overlap },
+      });
+    }
+
+    repositories.roots.bind({
+      mappingId: body.mappingId,
+      phoneRootId: body.rootId,
+      phoneRetentionPolicy: body.phoneRetentionPolicy,
+      desktopDeletionPolicy: body.desktopDeletionPolicy,
+      updatedAt: now().toISOString(),
+    });
+
+    return Promise.resolve(
+      rootRegisterResponseSchema.parse({
+        rootId: body.rootId,
+        mappingId: body.mappingId,
+        status: 'registered',
       }),
     );
   });

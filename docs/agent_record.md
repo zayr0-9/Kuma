@@ -23,6 +23,38 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T10:21+0100 — feature/phase1-roots-register — Roots registration + destination-overlap guard (spec 25.2/12.5)
+
+- **Done:** `POST /v1/roots/register` binds a phone root to a desktop-approved
+  mapping (phone sends `mappingId`, never a path). Guards: mapping exists and is
+  owned by the authed device (else `root_not_mapped`, existence not leaked);
+  one-mapping↔one-root integrity (re-point = `bad_request` conflict; re-bind same
+  pair = allowed policy update per §25.2 "or updates"); destination overlap.
+  `storage/destinationOverlap.ts` (pure `destinationsOverlap`/`findDestinationOverlap`)
+  rejects equal / ancestor / descendant destinations (§12.5); case-insensitive on
+  darwin/win32 (over-blocks rather than risking a shared-dir overwrite). 17 new
+  tests (10 overlap unit incl. platform case-sensitivity + sibling/prefix
+  non-overlap; 7 endpoint incl. ownership, overlap with conflicting-id detail,
+  idempotent update, re-point conflict, malformed body). 92 desktop / 161 workspace
+  green; lint/typecheck/format clean.
+- **Design notes:** overlap enforced at register (the spec-25.2 gate); the
+  desktop-UI mapping-approval step that sets a mapping's destination is simulated in
+  tests via `roots.create` and will also overlap-check at creation when the IPC
+  lands. `details.conflictingMappingId` surfaced on the overlap error. Register
+  handler kept inline in `controlServer.ts` for now; will split routes into modules
+  when prepare/delete land (file is ~260 lines).
+- **Files:** `apps/desktop/src/main/storage/destinationOverlap.ts`,
+  `apps/desktop/src/main/api/controlServer.ts`,
+  `apps/desktop/test/{destinationOverlap,controlServer}.test.ts`.
+- **PR:** branch `feature/phase1-roots-register` pushed — open + squash-merge.
+- **Docs updated:** `agent_desktop.md`, this record.
+- **Follow-ups:** next slice — `POST /v1/files/prepare` (+ status): the file-sync
+  repos (`remote_file`/`upload_prepare`/`remote_version`), upload|skip decision via
+  hash lookup, tus folded into the HTTPS server with a prepare-keyed
+  `namingFunction`, and worker-thread hashing. Then `POST /v1/files/delete`,
+  `GET /v1/sync/status`, rate limiting, and the desktop-UI slice. When
+  `controlServer.ts` grows further, split into `api/routes/*` registrars.
+
 ### 2026-07-25T10:10+0100 — feature/phase1-pairing — Pairing endpoint + window + token issuance (spec 24.3/24.5)
 
 - **Done:** `POST /v1/pair` end to end. `auth/pairingWindow.ts` — five-minute
