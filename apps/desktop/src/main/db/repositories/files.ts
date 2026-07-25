@@ -123,6 +123,10 @@ export interface FilesRepository {
     now: string,
   ): UploadPrepareRow | null;
   setPrepareState(prepareId: string, state: PrepareState, errorCode?: string | null): void;
+  // Prepares still eligible to hold staged bytes (spec 22.3): non-terminal and not
+  // past expiry. Startup staging GC keeps the files these name and deletes the rest.
+  // `now` is an ISO-8601 UTC string (lexicographic comparison).
+  listActivePrepares(now: string): { prepareId: string; phoneDeviceId: string; rootId: string }[];
   // Records that the tus transfer for a prepare has started (state -> uploading)
   // and links the staged bytes: tus_upload_id is the prepare id (the file name in
   // staging), so staging GC reconciles against this table (spec 22.3).
@@ -160,6 +164,10 @@ export function createFilesRepository(db: Database): FilesRepository {
   const setPrepareStateStmt = db.prepare(
     'UPDATE upload_prepare SET state = ?, error_code = ? WHERE prepare_id = ?',
   );
+  const activePreparesStmt = db.prepare(`
+    SELECT prepare_id, phone_device_id, root_id FROM upload_prepare
+    WHERE state NOT IN ('committed', 'failed', 'expired') AND expires_at > ?
+  `);
   const markUploadingStmt = db.prepare(
     "UPDATE upload_prepare SET state = 'uploading', tus_upload_id = ?, tus_location = ? WHERE prepare_id = ?",
   );
@@ -206,6 +214,15 @@ export function createFilesRepository(db: Database): FilesRepository {
     setPrepareState: (prepareId, state, errorCode = null) => {
       setPrepareStateStmt.run(state, errorCode, prepareId);
     },
+    listActivePrepares: (now) =>
+      activePreparesStmt.all(now).map((raw) => {
+        const r = raw as Record<string, unknown>;
+        return {
+          prepareId: asText(r.prepare_id),
+          phoneDeviceId: asText(r.phone_device_id),
+          rootId: asText(r.root_id),
+        };
+      }),
     markUploading: (prepareId, tusUploadId, tusLocation) => {
       markUploadingStmt.run(tusUploadId, tusLocation, prepareId);
     },

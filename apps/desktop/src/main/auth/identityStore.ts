@@ -12,6 +12,12 @@ import { generateDesktopIdentity, type DesktopIdentity } from './identity.ts';
 const IDENTITY_FILE = 'identity.json';
 const PRIVATE_KEY_FILE = 'device-key.pem';
 
+// The certificate reference stored in the desktop_identity summary row (spec 21.1):
+// the file the certificate PEM lives in, never the key.
+export function identityCertificateRef(directory: string): string {
+  return join(directory, IDENTITY_FILE);
+}
+
 const identityFileSchema = z.object({
   deviceId: uuidSchema,
   certificatePem: z.string().min(1),

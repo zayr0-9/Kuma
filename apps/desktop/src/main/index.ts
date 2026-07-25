@@ -1,5 +1,7 @@
 import { app, BrowserWindow } from 'electron';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
+import { startBackend, type Backend } from './backend.ts';
 
 // Electron security defaults are spec 20.1 requirements, not preferences:
 // isolated, sandboxed renderer with no Node integration and no remote content.
@@ -38,7 +40,24 @@ function createWindow(): void {
   }
 }
 
-void app.whenReady().then(() => {
+// The privileged backend (control server, database, discovery) lives in main; the
+// renderer never gets network-server or filesystem authority (spec 20.1). All the
+// wiring is in the electron-free backend module so it stays testable.
+let backend: Backend | null = null;
+
+void app.whenReady().then(async () => {
+  try {
+    backend = await startBackend({
+      userDataDir: app.getPath('userData'),
+      displayName: hostname(),
+    });
+    console.log(
+      `[backend] control server listening on ${backend.url} (device ${backend.deviceId})`,
+    );
+  } catch (error) {
+    console.error('[backend] failed to start', error);
+  }
+
   createWindow();
 
   app.on('activate', () => {
@@ -50,4 +69,15 @@ void app.whenReady().then(() => {
 // skeleton, closing the window quits.
 app.on('window-all-closed', () => {
   app.quit();
+});
+
+// Stop the backend cleanly on quit so the port is released and the advert withdrawn.
+app.on('will-quit', (event) => {
+  if (backend === null) return;
+  const stopping = backend;
+  backend = null;
+  event.preventDefault();
+  void stopping.close().finally(() => {
+    app.quit();
+  });
 });
