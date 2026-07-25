@@ -112,9 +112,22 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   `devices.recordPairing` (re-pairing reissues rather than colliding on the PK).
   New generic error code `bad_request` added to the protocol + spec. 12 new tests
   (7 endpoint incl. re-pair + one-time replay, 5 window unit).
+- **Roots registration built** (spec 25.2/12.5): `POST /v1/roots/register` binds a
+  phone root to a desktop-approved mapping (the phone sends a `mappingId`, never an
+  absolute path). Checks: mapping exists and is owned by the authenticated device
+  (else `root_not_mapped`, existence not leaked); one-mapping-to-one-root integrity
+  (re-pointing is a `bad_request` conflict, re-binding the same pair is the allowed
+  policy update); and destination overlap. `storage/destinationOverlap.ts`
+  (`destinationsOverlap`/`findDestinationOverlap`, pure) rejects a destination equal
+  to / ancestor of / descendant of an existing mapping's — case-insensitive on
+  darwin/win32 (over-blocks rather than risks a shared-dir overwrite; realpath-based
+  precision is a follow-up). The UI-approval step that creates the mapping row with
+  its destination is simulated in tests via `roots.create`; the real IPC lands with
+  the desktop-UI slice. 17 new tests (10 overlap unit, 7 endpoint).
 - Not yet built: failed-auth / pairing brute-force **rate limiting** (spec 24.6,
   deferred here — 256-bit secret + hashed tokens make it non-blocking for the
-  slice); `POST /v1/roots/register` (overlap guard); `POST /v1/files/prepare` +
+  slice); the desktop-side mapping-approval IPC (destination picker →
+  `roots.create` with an overlap check at creation time too); `POST /v1/files/prepare` +
   status + `POST /v1/files/delete`; `GET /v1/sync/status`; folding the tus mount
   (`uploadServer.ts`) into the HTTPS control server (with auth and a prepare-keyed
   `namingFunction`); hash worker-thread offload; safeStorage key wrapping; the QR

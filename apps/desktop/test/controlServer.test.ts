@@ -293,3 +293,121 @@ describe('POST /v1/pair', () => {
     expect(newAuth.status).toBe(200);
   });
 });
+
+const MAP1 = 'aaaaaaaa-1111-4111-8111-111111111111';
+const MAP2 = 'bbbbbbbb-2222-4222-8222-222222222222';
+const ROOT1 = 'cccccccc-3333-4333-8333-333333333333';
+const REQ = 'eeeeeeee-5555-4555-8555-555555555555';
+
+function registerHeaders(): Record<string, string> {
+  return { ...authHeaders(), 'content-type': 'application/json' };
+}
+
+function registerBody(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    requestId: REQ,
+    rootId: ROOT1,
+    mappingId: MAP1,
+    displayName: 'Camera',
+    phoneRetentionPolicy: 'keep_on_phone',
+    desktopDeletionPolicy: 'preserve_desktop_copy',
+    ...overrides,
+  });
+}
+
+function approveMapping(
+  mappingId: string,
+  destinationRoot: string,
+  phoneDeviceId = 'phone-1',
+): void {
+  createRepositories(db).roots.create({
+    mappingId,
+    phoneDeviceId,
+    destinationRoot,
+    displayName: 'Destination',
+    createdAt: CLOCK,
+  });
+}
+
+describe('POST /v1/roots/register', () => {
+  it('binds a phone root to a desktop-approved mapping', async () => {
+    approveMapping(MAP1, '/backups/camera');
+    const res = await call('POST', '/v1/roots/register', registerHeaders(), registerBody());
+    expect(res.status).toBe(200);
+    expect(res.json()).toEqual({ rootId: ROOT1, mappingId: MAP1, status: 'registered' });
+
+    const bound = createRepositories(db).roots.getByPhoneRoot('phone-1', ROOT1);
+    expect(bound?.mappingId).toBe(MAP1);
+    expect(bound?.phoneRetentionPolicy).toBe('keep_on_phone');
+    expect(bound?.desktopDeletionPolicy).toBe('preserve_desktop_copy');
+  });
+
+  it('rejects an unknown mapping with root_not_mapped', async () => {
+    const res = await call('POST', '/v1/roots/register', registerHeaders(), registerBody());
+    expect(res.status).toBe(404);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('root_not_mapped');
+  });
+
+  it("rejects another device's mapping as root_not_mapped", async () => {
+    createRepositories(db).devices.insert({
+      phoneDeviceId: 'phone-2',
+      phoneDisplayName: 'Other',
+      tokenHash: hashToken('other-token'),
+      pairedAt: CLOCK,
+    });
+    approveMapping(MAP1, '/backups/other', 'phone-2');
+    const res = await call('POST', '/v1/roots/register', registerHeaders(), registerBody());
+    expect(res.status).toBe(404);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('root_not_mapped');
+  });
+
+  it('rejects a destination that nests with an existing mapping', async () => {
+    approveMapping(MAP2, '/backups'); // ancestor of /backups/camera
+    approveMapping(MAP1, '/backups/camera');
+    const res = await call('POST', '/v1/roots/register', registerHeaders(), registerBody());
+    expect(res.status).toBe(409);
+    const body = errorResponseSchema.parse(res.json());
+    expect(body.error.code).toBe('destination_overlap');
+    expect(body.error.details?.conflictingMappingId).toBe(MAP2);
+  });
+
+  it('allows re-registering the same pair as a policy update', async () => {
+    approveMapping(MAP1, '/backups/camera');
+    await call('POST', '/v1/roots/register', registerHeaders(), registerBody());
+    const res = await call(
+      'POST',
+      '/v1/roots/register',
+      registerHeaders(),
+      registerBody({ phoneRetentionPolicy: 'delete_after_verified_backup' }),
+    );
+    expect(res.status).toBe(200);
+    expect(
+      createRepositories(db).roots.getByPhoneRoot('phone-1', ROOT1)?.phoneRetentionPolicy,
+    ).toBe('delete_after_verified_backup');
+  });
+
+  it('rejects re-pointing a phone root to a different mapping', async () => {
+    approveMapping(MAP1, '/backups/one');
+    approveMapping(MAP2, '/backups/two');
+    await call('POST', '/v1/roots/register', registerHeaders(), registerBody());
+    const res = await call(
+      'POST',
+      '/v1/roots/register',
+      registerHeaders(),
+      registerBody({ mappingId: MAP2 }),
+    );
+    expect(res.status).toBe(409);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('bad_request');
+  });
+
+  it('rejects a malformed registration body', async () => {
+    const res = await call(
+      'POST',
+      '/v1/roots/register',
+      registerHeaders(),
+      JSON.stringify({ requestId: REQ, mappingId: MAP1 }),
+    );
+    expect(res.status).toBe(400);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('bad_request');
+  });
+});
