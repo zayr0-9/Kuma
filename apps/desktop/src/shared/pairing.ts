@@ -6,7 +6,20 @@
 export const PAIRING_CHANNELS = {
   start: 'pairing:start',
   cancel: 'pairing:cancel',
+  // main→renderer push, fired when a phone finishes POST /v1/pair. Carries only the
+  // paired device's public identity — never the issued token or the pairing secret.
+  completed: 'pairing:completed',
 } as const;
+
+export interface PairingCompletedEvent {
+  // The paired phone's own device id and display name (agent_design §5). Public
+  // identity only; the token is returned to the phone and never crosses to the
+  // renderer (spec 24.3/20.1).
+  deviceId: string;
+  displayName: string;
+  // ISO-8601 UTC instant the pairing was recorded.
+  pairedAt: string;
+}
 
 export interface PairingPresentation {
   // The desktop identity the phone will pin, shown on both sides during pairing

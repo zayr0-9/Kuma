@@ -103,11 +103,15 @@ the same PR.
   primary action **"Show pairing code"**, **"Cancel"**; the countdown reads **"Expires
   in m:ss"**. `img-src 'self' data:` was added to the renderer CSP so the data-URL QR
   displays.
-- Deferred on the pairing surface: the **manual code** fallback from the §5 parity
-  checklist (would mean exposing a human-typeable secret to the renderer — kept out for
-  now; revisit with a short-code scheme), and live **pairing-completion feedback** (a
-  main→renderer push when a phone actually pairs) — the panel shows the code and expiry
-  only.
+- **Pairing-completion feedback built** (spec 24.3, §5 pairing flow): when a phone
+  finishes pairing, the main process pushes a `pairing:completed` event and the panel
+  swaps the QR for **"Paired with {name}. Add a folder below to back it up."** The same
+  push auto-refreshes the destinations panel, so a newly paired phone appears without the
+  manual **Refresh** (which stays as a fallback). The event carries only the phone's
+  public identity — never the issued token or the pairing secret (spec 20.1).
+- Still deferred on the pairing surface: the **manual code** fallback from the §5 parity
+  checklist — it would mean exposing a human-typeable secret to the renderer, against the
+  governing hard rule; revisit with a short-code scheme.
 - **Desktop destinations surface built** (spec 25.2): `DestinationsPanel`
   (`apps/desktop/src/renderer/src/DestinationsPanel.tsx`) lists each paired phone (by
   display name) and the folders on this desktop it backs up into. A destination is added

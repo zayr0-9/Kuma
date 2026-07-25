@@ -1,5 +1,9 @@
-import { contextBridge, ipcRenderer } from 'electron';
-import { PAIRING_CHANNELS, type PairingPresentation } from '../shared/pairing.ts';
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import {
+  PAIRING_CHANNELS,
+  type PairingCompletedEvent,
+  type PairingPresentation,
+} from '../shared/pairing.ts';
 import {
   IPC_CHANNELS,
   type AddDestinationRequest,
@@ -23,6 +27,14 @@ const api = {
     // The raw pairing secret never crosses this boundary (spec 24.3).
     start: (): Promise<PairingPresentation> => ipcRenderer.invoke(PAIRING_CHANNELS.start),
     cancel: (): Promise<void> => ipcRenderer.invoke(PAIRING_CHANNELS.cancel),
+    // Subscribe to main's push when a phone pairs. The IpcRendererEvent is stripped so
+    // the renderer only ever sees the public payload. Returns an unsubscribe function.
+    onPaired: (listener: (event: PairingCompletedEvent) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, payload: PairingCompletedEvent): void =>
+        listener(payload);
+      ipcRenderer.on(PAIRING_CHANNELS.completed, handler);
+      return () => ipcRenderer.removeListener(PAIRING_CHANNELS.completed, handler);
+    },
   },
   devices: {
     list: (): Promise<DeviceSummary[]> => ipcRenderer.invoke(IPC_CHANNELS.devicesList),

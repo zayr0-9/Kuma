@@ -45,6 +45,14 @@ export function DestinationsPanel(): ReactElement {
     void refresh();
   }, [refresh]);
 
+  // A newly paired phone appears without the manual Refresh: main pushes on pairing.
+  useEffect(() => {
+    if (!bridge) return;
+    return bridge.pairing.onPaired(() => {
+      void refresh();
+    });
+  }, [bridge, refresh]);
+
   const addFor = useCallback(
     async (deviceId: string) => {
       if (!bridge) return;

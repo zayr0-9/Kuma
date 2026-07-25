@@ -8,6 +8,7 @@ import {
   type Repositories,
 } from './db/index.ts';
 import { startAdvertising, type Advertiser } from './discovery/advertise.ts';
+import type { PairingCompletedEvent } from '../shared/pairing.ts';
 import { createCommitCoordinator } from './sync/commitCoordinator.ts';
 import { createCommitService } from './sync/commitService.ts';
 import { garbageCollectStaging } from './sync/stagingGc.ts';
@@ -46,6 +47,10 @@ export interface Backend {
   // Exposed for the main-process UI/IPC layer (devices + destinations management). This
   // never crosses to the renderer — the preload surfaces only narrow named methods.
   repositories: Repositories;
+  // Subscribe to completed pairings (a phone finished POST /v1/pair). The electron
+  // IPC layer forwards these to the renderer; the event carries only the paired
+  // device's public identity. Returns an unsubscribe function.
+  onPairingComplete(listener: (event: PairingCompletedEvent) => void): () => void;
   close(): Promise<void>;
 }
 
@@ -71,12 +76,19 @@ export async function startBackend(config: BackendConfig): Promise<Backend> {
     service: createCommitService({ repositories }),
   });
 
+  // Fan a completed pairing out to any subscribers (the electron IPC layer). A plain
+  // listener set keeps the backend electron-free; the renderer push lives in main/ui.
+  const pairingListeners = new Set<(event: PairingCompletedEvent) => void>();
+
   const app = createControlServer({
     tls: { key: identity.privateKeyPem, cert: identity.certificatePem },
     identity: { deviceId: identity.deviceId, name: config.displayName },
     repositories,
     pairingWindow,
     commitCoordinator,
+    onPairingComplete: (event) => {
+      for (const listener of pairingListeners) listener(event);
+    },
   });
 
   const url = await app.listen({ port: config.port ?? 0, host: config.host ?? '0.0.0.0' });
@@ -102,6 +114,10 @@ export async function startBackend(config: BackendConfig): Promise<Backend> {
     displayName: config.displayName,
     pairingWindow,
     repositories,
+    onPairingComplete: (listener) => {
+      pairingListeners.add(listener);
+      return () => pairingListeners.delete(listener);
+    },
     close: async () => {
       if (advertiser !== null) await advertiser.stop();
       await app.close();
