@@ -24,6 +24,10 @@ export interface DestinationStatus {
   // Uploads that finished transferring but are not yet committed for this destination
   // (0 for an unbound destination — prepares only exist for a bound root).
   pendingCommits: number;
+  // ISO-8601 UTC time of the most recent commit to this destination, or null when it
+  // has never backed anything up (also null while unbound). Rendered as a relative
+  // time on the card (agent_design §4/§5).
+  lastSyncedAt: string | null;
 }
 
 export interface SyncStatusView {

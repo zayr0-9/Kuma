@@ -289,10 +289,19 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   for every destination + policies only once bound, unavailable volume, per-root and
   total pending; formatBytes matrix). 170 desktop / 242 workspace green. **Verified by a
   real `pnpm build`** (preload emits `status:get`).
+- **Last-synced on the destination card built** (spec 25.2, agent_design §5): a bound
+  destination now shows **"Last backed up {relative}"** (or **"No backups yet"** before
+  the first commit), completing the §5 card fields. New repo read
+  `files.getLastCommittedAt(phoneDeviceId, rootId)` (`MAX(remote_file.committed_at)`,
+  kept even for trashed files so it reflects the last time anything was written; null
+  before any commit) feeds a new `lastSyncedAt` field on the `status:get` DTO — no new
+  IPC channel. Rendered via `formatRelativeTime` in `src/shared/format.ts` (pure,
+  `Date.now()`-injected, unit-tested; relative per §4, absolute stays in
+  history/diagnostics). 5 new tests (statusController last-synced; formatRelativeTime
+  matrix). 175 desktop / 247 workspace green. **Verified by a real `pnpm build`**.
 - Not yet built: the **manual-code** pairing fallback and live **pairing-completion
   feedback** (main→renderer push on a successful pair; the destinations panel offers a
-  manual Refresh meanwhile); the destination card's **last synced** field (needs commit
-  timestamps surfaced per destination); destination **rename/remove** and
+  manual Refresh meanwhile); destination **rename/remove** and
   the phone-folder policy editing; enforcing `Upload-Length` against the prepare's
   `expected_size`;
   periodic (not just startup) staging GC; commit crash-recovery re-derivation through
