@@ -3,6 +3,7 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { startBackend, type Backend } from './backend.ts';
 import { registerPairingIpc } from './ui/ipc.ts';
+import { registerDestinationsIpc } from './ui/destinationsIpc.ts';
 
 // Electron security defaults are spec 20.1 requirements, not preferences:
 // isolated, sandboxed renderer with no Node integration and no remote content.
@@ -45,7 +46,7 @@ function createWindow(): void {
 // renderer never gets network-server or filesystem authority (spec 20.1). All the
 // wiring is in the electron-free backend module so it stays testable.
 let backend: Backend | null = null;
-let disposePairingIpc: (() => void) | null = null;
+let disposeIpc: (() => void) | null = null;
 
 void app.whenReady().then(async () => {
   try {
@@ -53,7 +54,12 @@ void app.whenReady().then(async () => {
       userDataDir: app.getPath('userData'),
       displayName: hostname(),
     });
-    disposePairingIpc = registerPairingIpc(backend);
+    const disposePairing = registerPairingIpc(backend);
+    const disposeDestinations = registerDestinationsIpc(backend);
+    disposeIpc = () => {
+      disposePairing();
+      disposeDestinations();
+    };
     console.log(
       `[backend] control server listening on ${backend.url} (device ${backend.deviceId})`,
     );
@@ -79,8 +85,8 @@ app.on('will-quit', (event) => {
   if (backend === null) return;
   const stopping = backend;
   backend = null;
-  disposePairingIpc?.();
-  disposePairingIpc = null;
+  disposeIpc?.();
+  disposeIpc = null;
   event.preventDefault();
   void stopping.close().finally(() => {
     app.quit();
