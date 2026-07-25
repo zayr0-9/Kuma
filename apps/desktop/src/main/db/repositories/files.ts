@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { PrepareState } from '@foldersync/contracts';
 import type { Database } from '../database.ts';
 import { asInt, asIntOrNull, asRow, asText, asTextOrNull } from '../row.ts';
@@ -10,10 +11,9 @@ import type {
 
 // The file-sync trio (spec 21.1): upload_prepare (in-flight reservations),
 // remote_file (the committed truth per path) and remote_version (immutable
-// history). This slice needs the read surface for the prepare skip/status
-// decision plus prepare creation; the commit-time upsert-and-supersede
-// transaction lands with the commit slice, which builds on the plain writers
-// exposed here.
+// history). Covers the prepare lifecycle (create/read/reuse/state), the tus
+// upload transition (markUploading), and the commit-time upsert-and-supersede
+// (recordCommittedVersion).
 
 // A prepare in a terminal state can neither be resumed nor reused for an
 // idempotent retry (spec 25.2), and a status read never flips it to 'expired'.
@@ -90,32 +90,19 @@ export interface CreatePrepareInput {
   expiresAt: string;
 }
 
-// Plain seed writers for remote_file / remote_version. The commit slice replaces
-// naive inserts with the transactional upsert-and-supersede path (spec 6.5); these
-// exist so the prepare skip/status decision can be exercised and so the commit
-// slice has a repository to grow into.
-export interface InsertRemoteFileInput {
-  id: string;
+// The durable record of a committed upload (spec 6.5, 21.1): a new immutable
+// remote_version becomes the current version of its remote_file, and any prior
+// version is stamped superseded — all in one transaction so a reader never sees two
+// current versions or a remote_file pointing at a half-written version.
+export interface RecordCommittedVersionInput {
   phoneDeviceId: string;
   rootId: string;
   fileEntryId: string;
   relativePath: string;
-  currentVersionId: string | null;
-  sha256: string | null;
-  size: number | null;
-  destinationMtimeMs: number | null;
-  destinationIdentity: string | null;
-  committedAt: string | null;
-  state: RemoteFileState;
-}
-
-export interface InsertRemoteVersionInput {
-  versionId: string;
-  remoteFileId: string;
   sha256: string;
   size: number;
-  originalRelativePath: string;
   committedAt: string;
+  destinationMtimeMs?: number | null;
 }
 
 export interface FilesRepository {
@@ -140,8 +127,13 @@ export interface FilesRepository {
   // and links the staged bytes: tus_upload_id is the prepare id (the file name in
   // staging), so staging GC reconciles against this table (spec 22.3).
   markUploading(prepareId: string, tusUploadId: string, tusLocation: string): void;
-  insertRemoteFile(input: InsertRemoteFileInput): void;
-  insertRemoteVersion(input: InsertRemoteVersionInput): void;
+  // The production commit writer (spec 6.5/18.5): upserts the remote_file, supersedes
+  // the previous version, and inserts the new immutable version — atomically. Returns
+  // the generated ids.
+  recordCommittedVersion(input: RecordCommittedVersionInput): {
+    versionId: string;
+    remoteFileId: string;
+  };
 }
 
 export function createFilesRepository(db: Database): FilesRepository {
@@ -175,8 +167,17 @@ export function createFilesRepository(db: Database): FilesRepository {
     INSERT INTO remote_file
       (id, phone_device_id, root_id, file_entry_id, relative_path, current_version_id,
        sha256, size, destination_mtime_ms, destination_identity, committed_at, state)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'committed')
   `);
+  const updateRemoteFileStmt = db.prepare(`
+    UPDATE remote_file SET
+      current_version_id = ?, sha256 = ?, size = ?, destination_mtime_ms = ?,
+      committed_at = ?, state = 'committed'
+    WHERE id = ?
+  `);
+  const supersedeVersionStmt = db.prepare(
+    'UPDATE remote_version SET superseded_at = ? WHERE version_id = ? AND superseded_at IS NULL',
+  );
   const insertRemoteVersionStmt = db.prepare(`
     INSERT INTO remote_version
       (version_id, remote_file_id, sha256, size, original_relative_path, committed_at, superseded_at)
@@ -208,31 +209,58 @@ export function createFilesRepository(db: Database): FilesRepository {
     markUploading: (prepareId, tusUploadId, tusLocation) => {
       markUploadingStmt.run(tusUploadId, tusLocation, prepareId);
     },
-    insertRemoteFile: (input) => {
-      insertRemoteFileStmt.run(
-        input.id,
-        input.phoneDeviceId,
-        input.rootId,
-        input.fileEntryId,
-        input.relativePath,
-        input.currentVersionId,
-        input.sha256,
-        input.size,
-        input.destinationMtimeMs,
-        input.destinationIdentity,
-        input.committedAt,
-        input.state,
+    recordCommittedVersion: (input) => {
+      const existing = mapRemoteFile(
+        remoteFileStmt.get(input.phoneDeviceId, input.rootId, input.relativePath),
       );
-    },
-    insertRemoteVersion: (input) => {
-      insertRemoteVersionStmt.run(
-        input.versionId,
-        input.remoteFileId,
-        input.sha256,
-        input.size,
-        input.originalRelativePath,
-        input.committedAt,
-      );
+      const versionId = randomUUID();
+      const remoteFileId = existing?.id ?? randomUUID();
+      const destinationMtimeMs = input.destinationMtimeMs ?? null;
+
+      db.exec('BEGIN');
+      try {
+        if (existing !== null) {
+          if (existing.currentVersionId !== null) {
+            supersedeVersionStmt.run(input.committedAt, existing.currentVersionId);
+          }
+          updateRemoteFileStmt.run(
+            versionId,
+            input.sha256,
+            input.size,
+            destinationMtimeMs,
+            input.committedAt,
+            remoteFileId,
+          );
+        } else {
+          insertRemoteFileStmt.run(
+            remoteFileId,
+            input.phoneDeviceId,
+            input.rootId,
+            input.fileEntryId,
+            input.relativePath,
+            versionId,
+            input.sha256,
+            input.size,
+            destinationMtimeMs,
+            null,
+            input.committedAt,
+          );
+        }
+        insertRemoteVersionStmt.run(
+          versionId,
+          remoteFileId,
+          input.sha256,
+          input.size,
+          input.relativePath,
+          input.committedAt,
+        );
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+
+      return { versionId, remoteFileId };
     },
   };
 }

@@ -23,6 +23,54 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T11:20+0100 — feature/phase1-commit-on-finish — Commit on upload finish + version persistence (spec 18.5/6.5)
+
+- **Done:** the upload→visible loop is closed. `sync/commitService.ts`
+  (`commitPrepare`) resolves a finished prepare's mapping, sets `verifying`, runs the
+  spike-6 `commitStagedFile` (verify size → hash → adopt / conflict-preserve / atomic
+  replace), persists a durable version via the new
+  `files.recordCommittedVersion` (one transaction: upsert `remote_file`, supersede the
+  prior `remote_version`, insert the new immutable one), and flips the prepare to
+  `committed` — or `failed` with a wire error code (size/hash mismatch →
+  `source_changed`, path → `invalid_relative_path`, staged gone → `upload_not_found`,
+  mapping gone → `destination_unavailable`). `sync/commitCoordinator.ts` serialises
+  commits per `(rootId, relativePath)` (spec 18.5) with a per-key promise chain and is
+  driven from `onUploadFinish` **off the request path** (the tus 204 is not held for a
+  multi-GB hash; the phone polls status). The control server takes an optional
+  `commitCoordinator` (the main process supplies one; absent → uploads rest in
+  `uploaded`, the prior behaviour). Proven end to end: a real TLS tus upload →
+  finish-hook → coordinator → bytes visible at the destination with a durable version.
+  The plain `insertRemoteFile`/`insertRemoteVersion` stand-ins were replaced by
+  `recordCommittedVersion`. 15 new tests (7 service, 4 coordinator, 1 full-loop, 2 repo
+  supersede + net refactors); 130 desktop / 199 workspace green; lint/typecheck/format
+  clean.
+- **Worker-thread hashing — implemented, then deliberately reverted:** it passes on
+  Node 26 (native `.ts` worker via `new URL(..., import.meta.url)`), but its
+  production form needs electron-vite Node-worker bundling, and that can only be
+  designed/verified once the Electron main process actually imports this backend —
+  nothing does yet (`main/index.ts` imports only electron + node:path; `pnpm build`
+  bundles the window skeleton, 2 modules). Shipping a hash proven only in the test
+  runtime, with no way to verify the packaged path in this slice, is the wrong call
+  for integrity-critical hashing. It lands with the **main-wiring slice**, verified by
+  a real build. (The original `hash.ts` comment already scoped worker offload to
+  "when this is wired into the Electron main process" — consistent.)
+- **Files:** `apps/desktop/src/main/sync/{commitService,commitCoordinator}.ts` (new),
+  `apps/desktop/src/main/db/repositories/files.ts` (recordCommittedVersion replaces
+  the insert stand-ins), `apps/desktop/src/main/db/{index,repositories/index}.ts`,
+  `apps/desktop/src/main/api/{controlServer,uploadRouting}.ts` (optional
+  `commitCoordinator` wired through `onUploadFinish`),
+  `apps/desktop/test/{commitService,commitCoordinator,commitOnFinish}.test.ts` (new),
+  `apps/desktop/test/{controlServer,db}.test.ts` (seed via `recordCommittedVersion`).
+- **PR:** branch `feature/phase1-commit-on-finish` pushed — open + squash-merge.
+- **Docs updated:** `agent_desktop.md`, this record.
+- **Follow-ups:** next slice — **wire the backend into the Electron main process**
+  (open the DB, load/persist the desktop identity + summary row, start the control
+  server + DNS-SD advert, create the commit coordinator) **and land worker-thread
+  hashing there** with electron-vite worker bundling verified by a real build. Then
+  `POST /v1/files/delete`, `GET /v1/sync/status`, `Upload-Length`-vs-`expected_size`
+  enforcement, rate limiting, and the desktop-UI slice. When `controlServer.ts` grows
+  past the current ~425 lines with delete/status, split into `api/routes/*`.
+
 ### 2026-07-25T11:00+0100 — feature/phase1-tus-fold — tus transport folded into the control server + per-destination staging (spec 18.4/18.5)
 
 - **Done:** tus uploads now run over the authenticated HTTPS control server.

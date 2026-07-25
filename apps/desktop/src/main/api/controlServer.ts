@@ -21,6 +21,7 @@ import {
 } from '@foldersync/protocol';
 import { isTerminalPrepareState, type PairedDeviceRow, type Repositories } from '../db/index.ts';
 import type { PairingWindow } from '../auth/pairingWindow.ts';
+import type { CommitCoordinator } from '../sync/commitCoordinator.ts';
 import { generateBearerToken, hashToken } from '../auth/token.ts';
 import { findDestinationOverlap } from '../storage/destinationOverlap.ts';
 import { isReservedRelativePath } from '../storage/layout.ts';
@@ -54,6 +55,10 @@ export interface ControlServerContext {
   // gate (spec 22.2). Injectable so insufficient_space is deterministic in tests;
   // defaults to statfs on the destination root.
   freeSpace?: (path: string) => Promise<number>;
+  // Drives the commit pipeline when an upload finishes (spec 18.5). Optional: without
+  // it a finished upload rests in the `uploaded` state (the tus-fold behaviour); the
+  // main process supplies one so uploads become visible.
+  commitCoordinator?: CommitCoordinator;
   // Injectable clock so last-seen and pairing timestamps are deterministic in tests.
   now?: () => Date;
 }
@@ -436,7 +441,13 @@ export function createControlServer(context: ControlServerContext): FastifyInsta
 
   // tus upload transport (spec 18.4/18.5): authenticated by the onRequest hook like
   // every other non-public route, routed to per-destination staging by prepare id.
-  registerUploadRoutes(app, { repositories, now });
+  registerUploadRoutes(app, {
+    repositories,
+    now,
+    ...(context.commitCoordinator !== undefined
+      ? { commitCoordinator: context.commitCoordinator }
+      : {}),
+  });
 
   return app;
 }

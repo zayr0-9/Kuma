@@ -163,19 +163,41 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   resumable TLS upload → per-destination staging → atomic commit, 3 metadata unit,
   1 repo) replace the 3 retired `uploadServer.ts` tests. 118 desktop / 187
   workspace green.
-- Not yet built: **commit trigger** on upload finish (the hook sets `uploaded`; the
-  commit slice must consume it → verify → hash → atomic rename → persist
-  `remote_file`/`remote_version` → `committed`, serialised per `(rootId,
-relativePath)` per spec 18.5) and **hash worker-thread offload** (spec 20.2) which
-  rides with it; enforcing `Upload-Length` against the prepare's `expected_size`;
-  failed-auth / pairing brute-force **rate limiting** (spec 24.6, deferred — 256-bit
-  secret + hashed tokens make it non-blocking); the desktop-side mapping-approval IPC
-  (destination picker → `roots.create` with an overlap check at creation time too);
-  `POST /v1/files/delete`; `GET /v1/sync/status`; safeStorage key wrapping; the QR
-  **image** rendering + renderer/IPC (only the payload/secret plumbing exists). The DB
-  summary row for `desktop_identity` is written when identity is wired into the main
-  process (identity currently persists to files only via `identityStore.ts`);
-  `GET /v1/device` reads the in-memory identity summary.
+- **Commit on finish built** (spec 18.5): a finished upload becomes visible.
+  `sync/commitService.ts` (`createCommitService.commitPrepare`) resolves the
+  prepare's mapping, drives `verifying`, runs the spike-6 `commitStagedFile` (verify
+  size → hash → adopt-in-place | conflict-preserve | atomic replace), then persists
+  the durable version via `files.recordCommittedVersion` (transactional
+  upsert-of-`remote_file` + supersede-prior + insert new immutable `remote_version`)
+  and flips the prepare to `committed`, or to `failed` with a wire error code (size /
+  hash mismatch → `source_changed`, path issues → `invalid_relative_path`, staged
+  bytes gone → `upload_not_found`, mapping gone → `destination_unavailable`).
+  `sync/commitCoordinator.ts` serialises commits per `(rootId, relativePath)` (spec
+  18.5) via a per-key promise chain and is driven from `onUploadFinish` off the
+  request path (the tus 204 is never held for a multi-GB hash; the phone polls
+  prepare status). The control server accepts an optional `commitCoordinator` (the
+  main process supplies one; without it a finished upload rests in `uploaded`). The
+  plain `insertRemoteFile`/`insertRemoteVersion` stand-ins were replaced by
+  `recordCommittedVersion`. 15 new tests (7 service, 4 coordinator, 1 full-loop TLS
+  upload→commit→visible, 2 repo supersede, +1 net from refactors). 130 desktop / 199
+  workspace green.
+- Not yet built: **hash worker-thread offload** (spec 20.2) — implemented and
+  test-green on Node 26, but reverted here because its production form needs
+  electron-vite Node-worker bundling that can only be designed/verified once the
+  Electron main process actually imports this backend (nothing does yet; the whole
+  control-server/DB/sync stack is built-and-tested but not wired into `main/index.ts`,
+  so `pnpm build` bundles only the window skeleton). It lands with that main-wiring
+  slice, verified by a real build. Also pending: enforcing `Upload-Length` against
+  the prepare's `expected_size`; commit crash-recovery re-derivation through the
+  service (commit.ts already handles it with a recorded sha); failed-auth / pairing
+  **rate limiting** (spec 24.6, deferred — 256-bit secret + hashed tokens make it
+  non-blocking); the desktop-side mapping-approval IPC (destination picker →
+  `roots.create` with an overlap check at creation time too); `POST /v1/files/delete`;
+  `GET /v1/sync/status`; safeStorage key wrapping; the QR **image** rendering +
+  renderer/IPC (only the payload/secret plumbing exists). The DB summary row for
+  `desktop_identity` is written when identity is wired into the main process (identity
+  currently persists to files only via `identityStore.ts`); `GET /v1/device` reads the
+  in-memory identity summary.
 
 ## Update this file when
 

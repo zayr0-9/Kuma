@@ -395,33 +395,58 @@ describe('files repository', () => {
     ).toThrow();
   });
 
-  it('round-trips a committed remote_file and its version', () => {
-    repos.files.insertRemoteFile({
-      id: 'rf-1',
+  it('records a first committed version as the current one', () => {
+    const shaA = 'a'.repeat(64);
+    const { versionId, remoteFileId } = repos.files.recordCommittedVersion({
       phoneDeviceId: 'dev-1',
       rootId: 'root-1',
       fileEntryId: 'file-1',
       relativePath: 'Camera/IMG_0001.jpg',
-      currentVersionId: 'ver-1',
-      sha256: 'a'.repeat(64),
+      sha256: shaA,
       size: 1024,
-      destinationMtimeMs: 1784981000000,
-      destinationIdentity: null,
-      committedAt: T0,
-      state: 'committed',
-    });
-    repos.files.insertRemoteVersion({
-      versionId: 'ver-1',
-      remoteFileId: 'rf-1',
-      sha256: 'a'.repeat(64),
-      size: 1024,
-      originalRelativePath: 'Camera/IMG_0001.jpg',
       committedAt: T0,
     });
 
     const file = repos.files.getRemoteFile('dev-1', 'root-1', 'Camera/IMG_0001.jpg');
-    expect(file?.currentVersionId).toBe('ver-1');
+    expect(file?.id).toBe(remoteFileId);
+    expect(file?.currentVersionId).toBe(versionId);
     expect(file?.state).toBe('committed');
-    expect(repos.files.getRemoteVersion('ver-1')?.sha256).toBe('a'.repeat(64));
+    expect(file?.sha256).toBe(shaA);
+    const version = repos.files.getRemoteVersion(versionId);
+    expect(version?.sha256).toBe(shaA);
+    expect(version?.supersededAt).toBeNull();
+  });
+
+  it('supersedes the prior version when a new one is committed for the same path', () => {
+    const shaA = 'a'.repeat(64);
+    const shaB = 'b'.repeat(64);
+    const first = repos.files.recordCommittedVersion({
+      phoneDeviceId: 'dev-1',
+      rootId: 'root-1',
+      fileEntryId: 'file-1',
+      relativePath: 'Camera/IMG_0001.jpg',
+      sha256: shaA,
+      size: 1024,
+      committedAt: T0,
+    });
+    const second = repos.files.recordCommittedVersion({
+      phoneDeviceId: 'dev-1',
+      rootId: 'root-1',
+      fileEntryId: 'file-1',
+      relativePath: 'Camera/IMG_0001.jpg',
+      sha256: shaB,
+      size: 2048,
+      committedAt: T1,
+    });
+
+    // one remote_file, now pointing at the new version
+    expect(second.remoteFileId).toBe(first.remoteFileId);
+    const file = repos.files.getRemoteFile('dev-1', 'root-1', 'Camera/IMG_0001.jpg');
+    expect(file?.currentVersionId).toBe(second.versionId);
+    expect(file?.sha256).toBe(shaB);
+    expect(file?.size).toBe(2048);
+    // the old version is preserved but stamped superseded; the new one is current
+    expect(repos.files.getRemoteVersion(first.versionId)?.supersededAt).toBe(T1);
+    expect(repos.files.getRemoteVersion(second.versionId)?.supersededAt).toBeNull();
   });
 });
