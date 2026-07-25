@@ -86,12 +86,30 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   `remote_version`), `deletion_event` and `event_log` have tables in v1 but their
   repositories land with the slices that exercise them (prepare/upload, deletion).
   17 tests in `test/db.test.ts`.
-- Not yet built: control API endpoints (auth, prepare, delete), the HTTPS control
-  server on the spike-4 identity, pairing endpoint/window. Hash worker-thread
-  offload lands with the control API wiring; safeStorage key wrapping lands with
-  main-process wiring. The DB summary row for `desktop_identity` is written when
-  identity is wired into the main process (currently identity persists to files
-  only via `identityStore.ts`).
+- **Control server built** (`src/main/api/controlServer.ts`, spec 24/25):
+  `createControlServer(context)` serves an HTTPS Fastify instance on the pinned
+  desktop identity (key/cert PEM from `identity.ts`). Cross-cutting middleware in a
+  single `onRequest` hook: request-id (`x-request-id`, normalised to a uuid and
+  echoed), mandatory protocol-version gate on authed routes
+  (`protocol_version_unsupported`), and bearer auth — token SHA-256-hashed
+  (`auth/token.ts` `hashToken`) and matched against `paired_device` via
+  `findActiveByTokenHash` (revoked excluded), touching last-seen on success.
+  `PUBLIC_ROUTES` (currently just `/v1/health`) skip auth. Errors go through
+  `api/errors.ts` (`ApiError` → `buildErrorResponse`, validated against
+  `errorResponseSchema`, never leaking internals). Endpoints implemented:
+  `GET /v1/health` (unauth) and `GET /v1/device` (authed). 10 tests in
+  `test/controlServer.test.ts` make real TLS requests (server cert supplied as
+  `ca`, so a wrong cert fails the handshake — proves the pinned identity is served).
+  Injectable `now` clock for deterministic last-seen.
+- Not yet built: `POST /v1/pair` + pairing window/secret + token issuance +
+  failed-auth rate limiting (spec 24.6); `POST /v1/roots/register` (overlap guard);
+  `POST /v1/files/prepare` + status + `POST /v1/files/delete`; `GET /v1/sync/status`;
+  folding the tus mount (`uploadServer.ts`) into the HTTPS control server (with
+  auth and a prepare-keyed `namingFunction`); hash worker-thread offload;
+  safeStorage key wrapping. The DB summary row for `desktop_identity` is written
+  when identity is wired into the main process (identity currently persists to
+  files only via `identityStore.ts`); `GET /v1/device` reads the in-memory
+  identity summary.
 
 ## Update this file when
 

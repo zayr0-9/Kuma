@@ -23,6 +23,35 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T09:56+0100 — feature/phase1-control-server — HTTPS control server + auth middleware (spec 24/25)
+
+- **Done:** `createControlServer(context)` — HTTPS Fastify on the pinned desktop
+  identity (spike-4 cert/key PEM). Single `onRequest` hook does request-id
+  (normalise to uuid + echo via `x-request-id`), mandatory protocol-version gate on
+  authed routes, and bearer auth (SHA-256 token hash → `paired_device`
+  `findActiveByTokenHash`, revoked excluded, last-seen touched on success).
+  `api/errors.ts` renders `ApiError` into the spec-25.3 envelope (validated against
+  `errorResponseSchema`, no internal leakage). `auth/token.ts` `hashToken`.
+  Endpoints: `GET /v1/health` (unauth) + `GET /v1/device` (authed). 10 new tests
+  (`controlServer.test.ts`) make real TLS calls with the server cert as `ca` — a
+  wrong cert would fail the handshake, so this also proves the pinned identity is
+  served. 63 desktop / 132 workspace tests green; lint/typecheck/format clean.
+- **Design notes:** DB layer merged on `main` first (PR #1, squash `0c43e00`), so
+  this branches fresh from it — no stack. `createUploadServer` (spike-6 tus,
+  plain HTTP) left untouched; folding tus into the HTTPS server with auth +
+  prepare-keyed naming happens in the prepare/upload slice. Injectable `now` clock
+  for deterministic last-seen. Failed-auth rate limiting (spec 24.6) deferred to
+  the pairing slice where brute-force matters.
+- **Files:** `apps/desktop/src/main/api/{controlServer,errors}.ts`,
+  `apps/desktop/src/main/auth/token.ts`, `apps/desktop/test/controlServer.test.ts`.
+- **PR:** branch pushed — squash-merge in web UI.
+- **Docs updated:** `agent_desktop.md` (control-server current state + remaining),
+  this record.
+- **Follow-ups:** next slices (each its own branch/PR off `main`): pairing window +
+  `POST /v1/pair` + token issuance + rate limiting; `POST /v1/roots/register` with
+  overlap guard; `POST /v1/files/prepare` (+ status) + file-sync repos + tus into
+  the HTTPS server; `GET /v1/sync/status`; worker-thread hashing.
+
 ### 2026-07-25T09:36+0100 — feature/phase1-desktop-db — Desktop database layer (spec 21)
 
 - **Done:** desktop metadata database built on `node:sqlite`. §21.2 gate cleared —
