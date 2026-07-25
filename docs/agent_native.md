@@ -36,15 +36,26 @@ fixtures in `packages/test-fixtures` (see [`agent_protocol.md`](agent_protocol.m
 
 ## Current state
 
-- Skeleton in place: `expo-module.config.json`, library `build.gradle` following
-  the create-expo-module local template, empty library `AndroidManifest.xml`
-  (future home of service/permission declarations, spec 33.6), and
-  `FolderSyncModule.kt` exposing only `ping()`. TS surface in `src/index.ts` via
-  `requireOptionalNativeModule` (null on stale dev clients).
+- Gradle wiring: `expo-module.config.json`, library `build.gradle` following the
+  create-expo-module local template, empty library `AndroidManifest.xml` (SAF needs
+  no permissions; service/permission declarations land with spike 2, spec 33.6).
+  TS surface in `src/index.ts` via `requireOptionalNativeModule` (null on stale dev
+  clients).
+- **Spike 1 (SAF persistence + traversal) implemented** — `FolderSyncModule.kt`
+  exposes `pickDirectory`, `listPersistedPermissions`, `checkAccess`,
+  `traverseTree`, `deleteDocument`, `releasePermission` (plus the original `ping`).
+  Traversal uses the fast `DocumentsContract` + `ContentResolver` bulk-cursor path
+  (not `DocumentFile.listFiles()`) for the 10,000-file target; relative paths follow
+  spec 12.6 (NFC, `/`, reject `.`/`..`/NUL). Design + on-device checklist:
+  [`architecture-decisions/spike-1-saf-persistence-traversal.md`](architecture-decisions/spike-1-saf-persistence-traversal.md).
+  Room persistence of roots/file entries is deliberately NOT here yet — it lands
+  with the scan engine (spec 16, 17).
 - **The Kotlin/Gradle side has never been compiled** — no Android toolchain on
-  this machine by design (spec 32.1). The first EAS development build is the
-  verification of the gradle wiring; expect iteration there.
-- Spikes 1, 2 and 5 (spec 35) land here next, before any broad implementation.
+  this machine by design (spec 32.1). The first EAS development build carrying this
+  module is the verification of both the gradle wiring and the SAF Kotlin; expect
+  iteration there, and record the spike-1 pass conditions on the physical device.
+- Spikes 2 (foreground service) and 5 (tus direct URI upload, spec 35) land here
+  next, before any broad implementation.
 
 ## Update this file when
 

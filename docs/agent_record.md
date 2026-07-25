@@ -23,6 +23,52 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T18:45+0100 — spike/1-saf-persistence-traversal — Spike 1: SAF persistence + traversal (Android half implemented)
+
+- **Done:** the first Android/native slice — the SAF surface of the Kotlin module
+  (`FolderSyncModule.kt`), its TS surface, a mobile wrapper, and a device harness. Kotlin
+  now exposes `pickDirectory` (ACTION_OPEN_DOCUMENT_TREE with read/write/persistable/prefix
+  flags → `takePersistableUriPermission` with only the granted flags; result plumbed via
+  `OnActivityResult`, req `0x5AF1`), `listPersistedPermissions` (proves restart persistence
+  from `persistedUriPermissions`), `checkAccess` (spec-12.3 root re-test),
+  `traverseTree(uri, sampleLimit)`, `deleteDocument`, `releasePermission` (plus the original
+  `ping`). **Traversal uses the fast `DocumentsContract` + `ContentResolver` bulk-cursor
+  path** (one query per dir, 5-column projection, BFS with an explicit queue — not
+  `DocumentFile.listFiles()`), returning aggregate counts / total bytes / wall-clock ms /
+  unreadable-dir + skipped-entry counts + a capped sample; the bridge never carries 10k
+  rows. Relative paths follow spec 12.6 (NFC, `/`, reject `.`/`..`/NUL → counted as
+  skipped). No manifest permissions needed (SAF grants scoped access; never
+  MANAGE_EXTERNAL_STORAGE). TS: `modules/foldersync-native/src/index.ts` grows the typed
+  interface + DTOs (`PickedDirectory` union, `TraversalResult`, …); `apps/mobile/src/native/
+saf.ts` wraps them (throws `NativeModuleUnavailableError` when unlinked). Harness at
+  `app/spike-saf.tsx` (route + home link): pick / list grants / check access / traverse /
+  per-file controlled delete behind a confirm dialog. Gates green **as far as headless
+  allows**: workspace typecheck + lint + 249 tests, and a real `expo export --platform
+android` (1191 modules → Hermes). No new TS unit tests — the surface is Kotlin +
+  device-verified (spec 34.3), consistent with spikes 3/4/6 landing testable halves.
+- **Verification boundary:** the Kotlin cannot compile on this machine (no Android
+  toolchain, spec 32.1). **An EAS dev build carrying this module + a run on the physical
+  Samsung is owed** to confirm the spike-1 pass conditions (restart persistence across
+  process + reboot, complete traversal incl. a ~10k-file tree with a recorded `elapsedMs`,
+  controlled deletion). The ADR carries the on-device checklist to fill in.
+- **Design call:** the spike proves SAF _itself_ only — **Room persistence of roots/file
+  entries is deliberately NOT here** (it lands with the scan engine, spec 16/17), nor is
+  overlap detection (12.5), quiescence or the two-scan missing-file rule (17.3–17.5). The
+  harness is a developer diagnostics screen (raw counts/absolute values per agent_design
+  §4), not a product surface — the §5 parity checklist does not apply to it yet.
+- **Files:** `modules/foldersync-native/android/src/main/java/expo/modules/foldersync/FolderSyncModule.kt`,
+  `modules/foldersync-native/src/index.ts`, `apps/mobile/src/native/saf.ts` (new),
+  `apps/mobile/app/spike-saf.tsx` (new), `apps/mobile/app/{_layout,index}.tsx`,
+  ADR `docs/architecture-decisions/spike-1-saf-persistence-traversal.md` (new).
+- **PR:** branch `spike/1-saf-persistence-traversal` pushed — open + squash-merge.
+- **Docs updated:** `agent_native.md` (SAF surface + fast-cursor decision + verification
+  boundary), `agent_mobile.md` (`src/native/saf.ts` + harness), new ADR, this record.
+- **Follow-ups:** run the EAS dev build + device spike and record results in the ADR. Next
+  Android spikes: **2 (foreground service)** and **5 (tus direct URI upload)**. Then the
+  real scan engine + Room DB (spec 16/17) turn this traversal into persisted `file_entry`
+  state and wire the phone into Phase 1 (pair → pick → scan → upload → resume → status).
+  Desktop side of Phase 1 remains complete and merged.
+
 ### 2026-07-25T15:35+0100 — feature/phase1-pairing-completion — Pairing-completion push, main→renderer (spec 24.3/20.1)
 
 - **Done:** a completed pairing now reaches the UI live, retiring the manual Refresh. The
