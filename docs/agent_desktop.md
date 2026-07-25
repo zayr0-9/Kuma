@@ -55,10 +55,17 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   `src/main/storage/hash.ts`, `src/main/storage/durability.ts`, and
   `src/main/api/uploadServer.ts` (Fastify + @tus/server with hijacked raw
   responses — proven resumable end to end).
+- **Spikes 3 and 4, desktop halves PASSED** (ADRs in `architecture-decisions/`):
+  `src/main/discovery/advertise.ts` (ciao DNS-SD, TXT surface pinned to
+  v/id/name/tls, verified by a bonjour-service browser) and
+  `src/main/auth/identity.ts` + `identityStore.ts` (ECDSA P-256 identity,
+  SPKI pin round-trips the wire schema, verified against a live TLS handshake
+  incl. impersonator rejection; generate-once store, 0600 key file).
+  `reflect-metadata` must stay imported before `@peculiar/x509`. Android halves
+  of both spikes wait on the dev client.
 - Not yet built: control API endpoints (auth, prepare, delete), SQLite metadata,
-  discovery advertisement, TLS identity/pairing — Spikes 3 and 4 (spec 35) come
-  before broad feature work. Hash worker-thread offload lands with the control
-  API wiring.
+  pairing endpoint/window. Hash worker-thread offload lands with the control
+  API wiring; safeStorage key wrapping lands with main-process wiring.
 
 ## Update this file when
 

@@ -23,6 +23,24 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T04:15+0100 — spike/discovery-tls-desktop — Spikes 3 & 4 desktop halves passed
+
+- **Done:** DNS-SD advertisement via @homebridge/ciao verified by a live
+  bonjour-service browse (TXT surface locked to v/id/name/tls); desktop TLS
+  identity (ECDSA P-256, ~10y self-signed cert, base64url SPKI pin compatible
+  with `base64Url32Schema`) verified against a real TLS handshake including
+  impersonator-pin rejection; generate-once identity store with 0600 key file.
+  5 new tests (36 in desktop suite). ADRs: spike-3-mdns-discovery.md,
+  spike-4-pinned-tls.md (both "desktop half PASSED"). Gotchas: reflect-metadata
+  import required before @peculiar/x509; bonjour-service is `export =` so
+  esModuleInterop enabled for desktop.
+- **Files:** `apps/desktop/src/main/{discovery,auth}/**`, tests, ADRs, tsconfig.
+- **PR:** none possible yet (no remote) — squash-merged locally to `main`, branch deleted.
+- **Docs updated:** `agent_desktop.md`, this record, two ADRs.
+- **Follow-ups:** Android halves (NsdManager browse, pinned trust manager, QR
+  pairing) blocked on the dev client build. Next desktop slice: pairing window +
+  `/v1/pair` + control-API auth on the identity from spike 4.
+
 ### 2026-07-25T04:30+0100 — fix/eas-android-build — First EAS build failure diagnosed and fixed
 
 - **Done:** EAS build `787a88d6` ERRORED with two gradle failures: (1)
