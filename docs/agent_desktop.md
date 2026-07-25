@@ -268,12 +268,31 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   `folderSync.destinations.{list,pickFolder,add}`; shared DTOs/channels in
   `src/shared/destinations.ts`. 7 new tests (destinationsController matrix: create,
   overlap, unknown device, invalid path, explicit name, bound reflection, active-device
-  list). 162 desktop / 234 workspace green. **Verified by a real `pnpm build`** (preload
-  emits the new channels).
+  list). **Verified by a real `pnpm build`** (preload emits the new channels).
+- **Sync-status on the destination card built** (spec 25.2, agent_design §5): each card
+  now merges in per-destination status from a new `status:get` IPC — free space,
+  the two policies once bound, and the commit backlog. The logic is an electron-free
+  `main/ui/statusController.ts` (`createStatusController` → `getStatus`, unit-tested):
+  it reports **every** destination `roots.list()` returns (bound or not, keyed by
+  mappingId) with its `freeBytes`/`destinationAvailable` (statfs, injectable — a failed
+  statfs is surfaced as unavailable, not a throw), its policies (null until bound), and
+  its `pendingCommits`. This is deliberately richer than the phone-facing
+  `GET /v1/sync/status` (device-scoped, bound-only) because the management UI shows a
+  folder's free space before any phone links to it. New repo method
+  `files.countPendingCommitsForRoot(phoneDeviceId, rootId)` (per-destination backlog;
+  the global `countPendingCommits()` is the top-line total). The statfs default was
+  extracted to `main/storage/diskSpace.ts` (`freeBytesOnVolume`) and now backs both the
+  prepare disk-space gate and this view. `main/ui/statusIpc.ts` (`registerStatusIpc`) is
+  the thin electron glue for `status:get`, disposed on quit. Preload exposes
+  `folderSync.status.get`; shared DTO/channel in `src/shared/status.ts`, `formatBytes` in
+  `src/shared/format.ts` (pure, unit-tested). 8 new tests (statusController: free space
+  for every destination + policies only once bound, unavailable volume, per-root and
+  total pending; formatBytes matrix). 170 desktop / 242 workspace green. **Verified by a
+  real `pnpm build`** (preload emits `status:get`).
 - Not yet built: the **manual-code** pairing fallback and live **pairing-completion
   feedback** (main→renderer push on a successful pair; the destinations panel offers a
-  manual Refresh meanwhile); the **sync-status UI** (per-destination free space, pending
-  counts, policies on the destination card — spec §5); destination **rename/remove** and
+  manual Refresh meanwhile); the destination card's **last synced** field (needs commit
+  timestamps surfaced per destination); destination **rename/remove** and
   the phone-folder policy editing; enforcing `Upload-Length` against the prepare's
   `expected_size`;
   periodic (not just startup) staging GC; commit crash-recovery re-derivation through

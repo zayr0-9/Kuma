@@ -1,23 +1,44 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
+import type { DesktopDeletionPolicy, PhoneRetentionPolicy } from '@foldersync/contracts';
 import type { DestinationSummary, DeviceSummary } from '../../shared/destinations.ts';
+import type { DestinationStatus } from '../../shared/status.ts';
+import { formatBytes } from '../../shared/format.ts';
 
 // The desktop destinations surface (spec 25.2, agent_design §5): each paired phone and
 // the folders on this desktop it backs up into. A destination is created here (native
 // folder picker → main) and starts unbound until the phone links one of its folders.
+// Each card also shows live status (free space, policies once bound, pending commits)
+// merged in from status:get.
+
+// Canonical policy wording (agent_design §1) — never soften "delete".
+const PHONE_RETENTION_LABELS: Record<PhoneRetentionPolicy, string> = {
+  keep_on_phone: 'Keep on phone',
+  delete_after_verified_backup: 'Delete from phone after verified backup',
+};
+const DESKTOP_DELETION_LABELS: Record<DesktopDeletionPolicy, string> = {
+  preserve_desktop_copy: 'Preserve desktop copies',
+  mirror_user_deletions: 'Move desktop copy to trash when deleted on phone',
+};
 
 export function DestinationsPanel(): ReactElement {
   const bridge = window.folderSync;
   const [devices, setDevices] = useState<DeviceSummary[] | null>(null);
   const [destinations, setDestinations] = useState<DestinationSummary[]>([]);
+  const [statusByMapping, setStatusByMapping] = useState<Map<string, DestinationStatus>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!bridge) return;
-    const [devs, dests] = await Promise.all([bridge.devices.list(), bridge.destinations.list()]);
+    const [devs, dests, status] = await Promise.all([
+      bridge.devices.list(),
+      bridge.destinations.list(),
+      bridge.status.get(),
+    ]);
     setDevices(devs);
     setDestinations(dests);
+    setStatusByMapping(new Map(status.destinations.map((s) => [s.mappingId, s])));
   }, [bridge]);
 
   useEffect(() => {
@@ -74,14 +95,34 @@ export function DestinationsPanel(): ReactElement {
                 <p>No destinations yet.</p>
               ) : (
                 <ul>
-                  {owned.map((d) => (
-                    <li key={d.mappingId}>
-                      <strong>{d.displayName}</strong> — {d.destinationRoot}
-                      <div>
-                        {d.bound ? 'Linked to a phone folder' : 'Waiting for a phone folder'}
-                      </div>
-                    </li>
-                  ))}
+                  {owned.map((d) => {
+                    const status = statusByMapping.get(d.mappingId);
+                    return (
+                      <li key={d.mappingId}>
+                        <strong>{d.displayName}</strong> — {d.destinationRoot}
+                        <div>
+                          {d.bound ? 'Linked to a phone folder' : 'Waiting for a phone folder'}
+                        </div>
+                        {status !== undefined &&
+                          (status.destinationAvailable ? (
+                            <div>
+                              {formatBytes(status.freeBytes)} free
+                              {status.pendingCommits > 0
+                                ? ` · ${status.pendingCommits} waiting to commit`
+                                : ''}
+                            </div>
+                          ) : (
+                            <div>Destination unavailable</div>
+                          ))}
+                        {d.bound && status?.phoneRetentionPolicy != null && (
+                          <div>{PHONE_RETENTION_LABELS[status.phoneRetentionPolicy]}</div>
+                        )}
+                        {d.bound && status?.desktopDeletionPolicy != null && (
+                          <div>{DESKTOP_DELETION_LABELS[status.desktopDeletionPolicy]}</div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
               <button type="button" disabled={busy} onClick={() => void addFor(device.deviceId)}>
