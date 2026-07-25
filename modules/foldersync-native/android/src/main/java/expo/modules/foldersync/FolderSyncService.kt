@@ -170,11 +170,14 @@ class FolderSyncService : Service() {
     manager.notify(NOTIF_ID, buildNotification())
   }
 
+  // Deprecation suppressed at function scope: the pre-O Notification.Builder(context)
+  // constructor and the (int, title, PendingIntent) action builder are the correct
+  // all-version-safe calls here.
+  @Suppress("DEPRECATION")
   private fun buildNotification(): Notification {
     val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       Notification.Builder(this, CHANNEL_ID)
     } else {
-      @Suppress("DEPRECATION")
       Notification.Builder(this)
     }
     builder
@@ -193,6 +196,7 @@ class FolderSyncService : Service() {
     return builder.build()
   }
 
+  @Suppress("DEPRECATION")
   private fun action(icon: Int, title: String, actionName: String): Notification.Action {
     val intent = Intent(this, FolderSyncService::class.java).setAction(actionName)
     val pending = PendingIntent.getService(
@@ -201,7 +205,6 @@ class FolderSyncService : Service() {
       intent,
       PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
-    @Suppress("DEPRECATION")
     return Notification.Action.Builder(icon, title, pending).build()
   }
 

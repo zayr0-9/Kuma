@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <!-- The local Expo module's library manifest is the source of truth for the
-       foreground service and its permissions (spec 33.6) — not a generated app manifest,
-       which `expo prebuild --clean` would recreate. -->
+       foreground service and its permissions (spec 33.6), not a generated app manifest
+       which a clean `expo prebuild` would recreate. -->
 
   <!-- Foreground service: connectedDevice is the intended primary type (spec 14.2 — the
        phone maintains a network connection to the paired desktop). The network
