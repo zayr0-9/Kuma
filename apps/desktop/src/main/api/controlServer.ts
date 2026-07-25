@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { statfs } from 'node:fs/promises';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
   deviceResponseSchema,
@@ -32,6 +31,7 @@ import type { PairingWindow } from '../auth/pairingWindow.ts';
 import type { CommitCoordinator } from '../sync/commitCoordinator.ts';
 import { generateBearerToken, hashToken } from '../auth/token.ts';
 import { createDeleteService } from '../sync/deleteService.ts';
+import { freeBytesOnVolume } from '../storage/diskSpace.ts';
 import { findDestinationOverlap } from '../storage/destinationOverlap.ts';
 import { isReservedRelativePath } from '../storage/layout.ts';
 import { resolveDestinationPath } from '../storage/pathSafety.ts';
@@ -101,12 +101,7 @@ function normaliseRequestId(header: unknown): string {
 
 export function createControlServer(context: ControlServerContext): FastifyInstance {
   const now = context.now ?? (() => new Date());
-  const freeSpace =
-    context.freeSpace ??
-    (async (path: string) => {
-      const stats = await statfs(path);
-      return stats.bavail * stats.bsize;
-    });
+  const freeSpace = context.freeSpace ?? freeBytesOnVolume;
   const { repositories } = context;
   // The delete mechanics (trash move, version gate, idempotent record) live in an
   // electron-free service so they are unit-tested without HTTP; the endpoint below

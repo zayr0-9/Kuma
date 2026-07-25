@@ -23,6 +23,51 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T14:35+0100 — feature/phase1-desktop-ui-sync-status — Desktop sync-status on the destination card (spec 25.2, design §5)
+
+- **Done:** the destination card now shows live status. A new electron-free
+  `main/ui/statusController.ts` (`createStatusController` → `getStatus`, unit-tested)
+  assembles the desktop's own status view over `status:get`: for **every** destination
+  `roots.list()` returns (bound or not, keyed by mappingId) it reports free space
+  (`freeBytes` / `destinationAvailable` via injectable statfs — a failed statfs is
+  surfaced as unavailable, not a throw), the two policies (null until the phone binds),
+  and the per-destination commit backlog. This is deliberately richer than the
+  phone-facing `GET /v1/sync/status` (device-scoped, bound-only) because the management
+  UI shows a folder's free space before any phone links to it. `main/ui/statusIpc.ts`
+  (`registerStatusIpc`) is the thin electron glue, disposed on quit; preload exposes
+  `folderSync.status.get`. `DestinationsPanel` merges the status into each card:
+  **"{size} free"** (e.g. "931 GB free"), **"· {n} waiting to commit"** appended when a
+  backlog exists, the §1 canonical policy labels once bound, and **"Destination
+  unavailable"** for an unreadable volume (a calm Needs-attention state, never implied
+  loss). New repo method `files.countPendingCommitsForRoot`; the statfs default was
+  extracted to `main/storage/diskSpace.ts` (`freeBytesOnVolume`) and now backs both the
+  prepare disk-space gate and this view (DRY). `formatBytes` in `src/shared/format.ts`
+  (pure, unit-tested). 8 new tests (statusController: free space for all destinations +
+  policies only once bound, unavailable volume, per-root + total pending; formatBytes
+  matrix). 170 desktop / 242 workspace green; lint/typecheck/format clean. **Verified by
+  a real `pnpm build`** (preload emits `status:get`).
+- **Design call:** the desktop status view intentionally diverges from the wire endpoint
+  (all destinations incl. unbound + policies, keyed by mappingId) — the local UI is not
+  a client of its own bearer-authed HTTP server. The card's remaining §5 field is **last
+  synced** (needs commit timestamps surfaced per destination), left for a later slice.
+- **Files:** `apps/desktop/src/shared/{status,format}.ts` (new),
+  `apps/desktop/src/main/ui/{statusController,statusIpc}.ts` (new),
+  `apps/desktop/src/main/storage/diskSpace.ts` (new; `controlServer.ts` now imports it),
+  `apps/desktop/src/main/db/repositories/files.ts` (`countPendingCommitsForRoot`),
+  `apps/desktop/src/main/index.ts` (register/dispose), `apps/desktop/src/preload/index.ts`,
+  `apps/desktop/src/renderer/src/{DestinationsPanel.tsx,env.d.ts}`,
+  `apps/desktop/test/{statusController,format}.test.ts` (new).
+- **PR:** branch `feature/phase1-desktop-ui-sync-status` pushed — open + squash-merge.
+- **Docs updated:** `agent_design.md` §7 (status card wording), `agent_desktop.md`
+  (sync-status UI state, trimmed "not yet built"), this record.
+- **Follow-ups:** the card's **last synced** field; live **pairing-completion feedback**
+  (main→renderer push; manual Refresh meanwhile) + **manual-code** pairing fallback;
+  destination **rename/remove** + phone-folder policy editing; safeStorage key wrapping;
+  `Upload-Length` vs `expected_size`; periodic staging GC; a hash-worker pool; the manual
+  packaged-app launch (pairing QR, folder picker, `status:*`/`destinations:*`/`devices:*`
+  round trips, worker via a real commit). Split `controlServer.ts` into `api/routes/*` in
+  the next slice that touches it.
+
 ### 2026-07-25T14:17+0100 — feature/phase1-desktop-ui-destinations — Desktop destinations UI + overlap-at-creation (spec 25.2/12.5)
 
 - **Done:** the desktop can now add destinations. `DestinationsPanel`

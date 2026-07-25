@@ -116,10 +116,18 @@ the same PR.
   folder"**). Canonical wording: heading **"Destinations"**, actions **"Add folder"** and
   **"Refresh"**; empty states **"No destinations yet."** and, with no devices, **"Pair a
   phone first, then add folders on this desktop to back it up into."**; the overlap error
-  reads **"That folder overlaps a destination you already added."** The §5
-  destination-card fields beyond name / path / status (policies, last synced, pending
-  count) arrive with the sync-status UI. There is no push yet, so the panel offers a
-  manual **Refresh** to pick up a newly paired phone.
+  reads **"That folder overlaps a destination you already added."** There is no push
+  yet, so the panel offers a manual **Refresh** to pick up a newly paired phone.
+- **Desktop sync-status on the destination card built** (spec 25.2): each destination
+  card now also shows, merged in from `status:get`, its free space (**"{size} free"** —
+  e.g. "931 GB free"), the two policies once the phone binds (rendered with the §1
+  canonical policy wording verbatim), and any commit backlog (**"· {n} waiting to
+  commit"** appended to the free-space line). A volume that cannot be read (unplugged
+  drive) shows **"Destination unavailable"** in place of the free-space line — a calm
+  "Needs attention" state (§2), never implying the files are gone (§3). Byte sizes use
+  `formatBytes` (binary steps, one decimal below 100 of a unit; an unreadable volume
+  renders as **"—"**, never "0"). The remaining §5 card field still to land is **last
+  synced** (needs commit timestamps surfaced per destination).
 - Colour tokens / `packages/ui`: still deferred (spec 10.1 — land shared presentational
   pieces when a second surface needs them). The pairing panel uses semantic HTML and
   structural layout only; no hard-coded colours yet.

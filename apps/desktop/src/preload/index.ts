@@ -8,6 +8,7 @@ import {
   type DeviceSummary,
   type PickFolderResult,
 } from '../shared/destinations.ts';
+import { STATUS_CHANNELS, type SyncStatusView } from '../shared/status.ts';
 
 // The renderer's entire view of the system (spec 20.1). Grows only as narrow,
 // named methods — never raw ipcRenderer, never generic filesystem access, never
@@ -33,6 +34,10 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.destinationsPickFolder),
     add: (request: AddDestinationRequest): Promise<AddDestinationResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.destinationsAdd, request),
+  },
+  status: {
+    // Per-destination free space, policies and pending-commit backlog (spec 25.2).
+    get: (): Promise<SyncStatusView> => ipcRenderer.invoke(STATUS_CHANNELS.get),
   },
 } as const;
 

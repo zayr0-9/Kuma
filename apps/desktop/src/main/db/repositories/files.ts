@@ -177,6 +177,10 @@ export interface FilesRepository {
   // Uploads that finished transferring but are not yet committed (spec 25.2 sync
   // status): the commit backlog surfaced by GET /v1/sync/status.
   countPendingCommits(): number;
+  // The same backlog scoped to one bound root — the per-destination pending count on
+  // the desktop status card (agent_design §5). Prepares only exist for bound roots, so
+  // this is well defined per destination.
+  countPendingCommitsForRoot(phoneDeviceId: string, rootId: string): number;
 }
 
 export function createFilesRepository(db: Database): FilesRepository {
@@ -240,6 +244,11 @@ export function createFilesRepository(db: Database): FilesRepository {
   const trashRemoteFileStmt = db.prepare("UPDATE remote_file SET state = 'trashed' WHERE id = ?");
   const countPendingCommitsStmt = db.prepare(
     "SELECT COUNT(*) AS n FROM upload_prepare WHERE state IN ('uploaded', 'verifying', 'committing')",
+  );
+  const countPendingCommitsForRootStmt = db.prepare(
+    `SELECT COUNT(*) AS n FROM upload_prepare
+     WHERE phone_device_id = ? AND root_id = ?
+       AND state IN ('uploaded', 'verifying', 'committing')`,
   );
 
   return {
@@ -352,5 +361,7 @@ export function createFilesRepository(db: Database): FilesRepository {
       }
     },
     countPendingCommits: () => asInt(asRow(countPendingCommitsStmt.get())?.n),
+    countPendingCommitsForRoot: (phoneDeviceId, rootId) =>
+      asInt(asRow(countPendingCommitsForRootStmt.get(phoneDeviceId, rootId))?.n),
   };
 }

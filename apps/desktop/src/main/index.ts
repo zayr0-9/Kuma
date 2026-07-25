@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { startBackend, type Backend } from './backend.ts';
 import { registerPairingIpc } from './ui/ipc.ts';
 import { registerDestinationsIpc } from './ui/destinationsIpc.ts';
+import { registerStatusIpc } from './ui/statusIpc.ts';
 
 // Electron security defaults are spec 20.1 requirements, not preferences:
 // isolated, sandboxed renderer with no Node integration and no remote content.
@@ -56,9 +57,11 @@ void app.whenReady().then(async () => {
     });
     const disposePairing = registerPairingIpc(backend);
     const disposeDestinations = registerDestinationsIpc(backend);
+    const disposeStatus = registerStatusIpc(backend);
     disposeIpc = () => {
       disposePairing();
       disposeDestinations();
+      disposeStatus();
     };
     console.log(
       `[backend] control server listening on ${backend.url} (device ${backend.deviceId})`,

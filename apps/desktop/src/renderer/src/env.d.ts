@@ -6,6 +6,7 @@ import type {
   DeviceSummary,
   PickFolderResult,
 } from '../../shared/destinations.ts';
+import type { SyncStatusView } from '../../shared/status.ts';
 
 // Ambient type of the preload bridge (src/preload/index.ts). Kept in sync by hand;
 // the DTOs come from the shared IPC contracts so there is one source of truth.
@@ -29,6 +30,9 @@ declare global {
         list: () => Promise<DestinationSummary[]>;
         pickFolder: () => Promise<PickFolderResult>;
         add: (request: AddDestinationRequest) => Promise<AddDestinationResult>;
+      };
+      status: {
+        get: () => Promise<SyncStatusView>;
       };
     };
   }
