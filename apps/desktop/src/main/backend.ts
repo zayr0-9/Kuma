@@ -39,7 +39,9 @@ export interface Backend {
   port: number;
   deviceId: string;
   spkiSha256: string;
-  // Exposed so the (later) desktop UI can open a pairing window and render its QR.
+  // The desktop's display name, shown on both sides during pairing (agent_design §5).
+  displayName: string;
+  // Exposed so the desktop UI can open a pairing window and render its QR.
   pairingWindow: PairingWindow;
   close(): Promise<void>;
 }
@@ -94,6 +96,7 @@ export async function startBackend(config: BackendConfig): Promise<Backend> {
     port,
     deviceId: identity.deviceId,
     spkiSha256: identity.spkiSha256,
+    displayName: config.displayName,
     pairingWindow,
     close: async () => {
       if (advertiser !== null) await advertiser.stop();

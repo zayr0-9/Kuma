@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { PairingPanel } from './PairingPanel.tsx';
 
 export function App(): ReactElement {
   // Defensive: if the preload bridge failed to load, say so instead of
@@ -9,13 +10,11 @@ export function App(): ReactElement {
     <main>
       <h1>FolderSync companion</h1>
       {runtime ? (
-        <p>
-          Skeleton build — Electron {runtime.electron}, Node {runtime.node}.
-        </p>
+        <PairingPanel />
       ) : (
         <p>Preload bridge unavailable — this is a bug, check the main-process logs.</p>
       )}
-      <p>Pairing, destinations and history arrive with the next phases.</p>
+      <p>Destinations and history arrive with the next phases.</p>
     </main>
   );
 }

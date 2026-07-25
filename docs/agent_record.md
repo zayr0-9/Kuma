@@ -23,6 +23,53 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T14:06+0100 — feature/phase1-desktop-ui-pairing — Desktop pairing UI: QR rendered in main (spec 24.3/20.1)
+
+- **Done:** the first real renderer feature. `PairingPanel`
+  (`renderer/src/PairingPanel.tsx`) shows the QR a phone scans, the desktop's display
+  name (both sides show the same name, agent_design §5) and a countdown to the
+  five-minute window. The **QR is rendered in the main process** and crosses to the
+  renderer only as a PNG data URL — the raw pairing secret never enters renderer state
+  (spec 24.3). Architecture: `src/shared/pairing.ts` (IPC channel names + a secret-free
+  `PairingPresentation` DTO shared by main/preload/renderer), `main/ui/pairingQr.ts`
+  (`renderPairingQr` — contract payload builder + `qrcode.toDataURL`, pure),
+  `main/ui/pairingController.ts` (`createPairingController` — opens the window, renders
+  from the fresh secret, returns image + expiry only; electron-free so the
+  no-secret-leak invariant is unit-tested), `main/net/lanHost.ts` (`resolveLanHost` —
+  first non-internal IPv4 for the QR host hint), `main/ui/ipc.ts` (`registerPairingIpc`
+  — thin `ipcMain.handle` glue, disposed on quit). Preload exposes
+  `folderSync.pairing.{start,cancel}` (ipcRenderer used only inside the bridge);
+  `main/index.ts` registers the IPC after the backend starts. `qrcode` (1.5.4, pure JS)
+  added and kept **external** in the main build; renderer CSP gained `img-src 'self'
+data:` so the data-URL QR displays; `backend.ts` now exposes `displayName`. 6 new
+  tests (2 lanHost, 1 QR render, 3 controller incl. the secret-never-leaks assertion);
+  155 desktop green; lint/typecheck/format clean. **Verified by a real `pnpm build`**:
+  preload emits the channels, main keeps qrcode external (require, not inlined), built
+  HTML carries the new CSP.
+- **Design call:** mappings require a paired device (root_mapping FK → paired_device),
+  so pairing is correctly the first UI slice — destinations attach to a paired phone and
+  come next. The renderer never getting the secret is the governing hard rule, so the §5
+  **manual-code** fallback is deferred (it would expose a typeable secret; revisit with
+  a short-code scheme), as is live **pairing-completion feedback** (a main→renderer push
+  when a phone actually pairs).
+- **Files:** `apps/desktop/src/shared/pairing.ts` (new),
+  `apps/desktop/src/main/ui/{pairingQr,pairingController,ipc}.ts` (new),
+  `apps/desktop/src/main/net/lanHost.ts` (new), `apps/desktop/src/main/backend.ts`
+  (displayName), `apps/desktop/src/main/index.ts` (register IPC),
+  `apps/desktop/src/preload/index.ts`, `apps/desktop/src/renderer/**`
+  (App/PairingPanel/env.d.ts/index.html CSP), `apps/desktop/package.json` (+qrcode),
+  `apps/desktop/test/{lanHost,pairingQr,pairingController}.test.ts` (new).
+- **PR:** branch `feature/phase1-desktop-ui-pairing` pushed — open + squash-merge.
+- **Docs updated:** `agent_design.md` §7 (pairing surface + wording), `agent_desktop.md`
+  (pairing UI/IPC state, trimmed "not yet built"), this record.
+- **Follow-ups:** the **destinations UI** (destination picker → `roots.create` with an
+  overlap check at creation time, for a chosen paired device) + a `devices:list` IPC so
+  the pairing surface can confirm success. Then pairing-completion push, manual-code
+  fallback, safeStorage key wrapping, `Upload-Length` vs `expected_size`, periodic
+  staging GC, a hash-worker pool, and the manual packaged-app launch (pairing QR
+  actually renders + `pairing:*` round trip + worker via a real commit). Split
+  `controlServer.ts` into `api/routes/*` in the next slice that touches it.
+
 ### 2026-07-25T13:28+0100 — feature/phase1-files-delete-status — Files delete (managed trash) + sync status (spec 6.4/25.2/26.2)
 
 - **Done:** the last two control-API endpoints. `POST /v1/files/delete` mirrors a

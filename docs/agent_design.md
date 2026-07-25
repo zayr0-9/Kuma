@@ -94,5 +94,20 @@ the same PR.
 
 ## 7. Current state
 
-- No UI has been built yet (pre-Phase-0). Tokens and shared presentational pieces
-  should land in `packages/ui` when first needed, not before (spec 10.1 shared-code rule).
+- **Desktop pairing surface built** (first real UI; spec 24.3): `PairingPanel`
+  (`apps/desktop/src/renderer/src/PairingPanel.tsx`) shows the QR the phone scans, the
+  desktop's own display name (both sides show the same name, §5), and a countdown to
+  the five-minute window's expiry. The QR is rendered in the **main process** and
+  arrives as a PNG data URL over the `folderSync.pairing` bridge — the raw secret never
+  enters renderer state (spec 24.3/20.1). Canonical wording: heading **"Pair a phone"**,
+  primary action **"Show pairing code"**, **"Cancel"**; the countdown reads **"Expires
+  in m:ss"**. `img-src 'self' data:` was added to the renderer CSP so the data-URL QR
+  displays.
+- Deferred on the pairing surface: the **manual code** fallback from the §5 parity
+  checklist (would mean exposing a human-typeable secret to the renderer — kept out for
+  now; revisit with a short-code scheme), and live **pairing-completion feedback** (a
+  main→renderer push when a phone actually pairs) — the panel shows the code and expiry
+  only.
+- Colour tokens / `packages/ui`: still deferred (spec 10.1 — land shared presentational
+  pieces when a second surface needs them). The pairing panel uses semantic HTML and
+  structural layout only; no hard-coded colours yet.
