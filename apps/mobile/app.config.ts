@@ -13,6 +13,11 @@ const config: ExpoConfig = {
     package: 'dev.zayr.foldersync',
   },
   plugins: ['expo-router'],
+  extra: {
+    eas: {
+      projectId: 'b86a340b-f58c-4903-aa6b-d00956359bcb',
+    },
+  },
 };
 
 export default config;

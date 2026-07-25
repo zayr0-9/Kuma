@@ -38,8 +38,12 @@ boundary), 32.2 (EAS workflow). UI changes also require
   via `expo export --platform android` (Hermes bundle builds).
 - `src/native/index.ts` is the required import path for native calls; it handles
   the module-not-linked state (`requireOptionalNativeModule` returns null on a
-  stale dev client). No EAS build has been run yet — first `eas build --profile
-development` needs `eas login` (personal Expo account).
+  stale dev client).
+- EAS project: `@sigma2/foldersync` (personal account `sigma2` /
+  karn97uk@gmail.com), projectId in `app.config.ts` `extra.eas` — `eas init`
+  cannot write to a TS config, so keep it updated by hand. Android keystore is
+  EAS-managed (generated in the cloud on the first build). Build via
+  `pnpm dlx eas-cli build --platform android --profile development`.
 - expo-* dependencies use Expo's `~` ranges on purpose (managed by
   `expo install --fix`); everything else stays exact-pinned.
 
