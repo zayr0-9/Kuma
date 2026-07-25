@@ -136,6 +136,10 @@ export interface FilesRepository {
     now: string,
   ): UploadPrepareRow | null;
   setPrepareState(prepareId: string, state: PrepareState, errorCode?: string | null): void;
+  // Records that the tus transfer for a prepare has started (state -> uploading)
+  // and links the staged bytes: tus_upload_id is the prepare id (the file name in
+  // staging), so staging GC reconciles against this table (spec 22.3).
+  markUploading(prepareId: string, tusUploadId: string, tusLocation: string): void;
   insertRemoteFile(input: InsertRemoteFileInput): void;
   insertRemoteVersion(input: InsertRemoteVersionInput): void;
 }
@@ -163,6 +167,9 @@ export function createFilesRepository(db: Database): FilesRepository {
   `);
   const setPrepareStateStmt = db.prepare(
     'UPDATE upload_prepare SET state = ?, error_code = ? WHERE prepare_id = ?',
+  );
+  const markUploadingStmt = db.prepare(
+    "UPDATE upload_prepare SET state = 'uploading', tus_upload_id = ?, tus_location = ? WHERE prepare_id = ?",
   );
   const insertRemoteFileStmt = db.prepare(`
     INSERT INTO remote_file
@@ -197,6 +204,9 @@ export function createFilesRepository(db: Database): FilesRepository {
       mapPrepare(reusablePrepareStmt.get(phoneDeviceId, rootId, relativePath, now)),
     setPrepareState: (prepareId, state, errorCode = null) => {
       setPrepareStateStmt.run(state, errorCode, prepareId);
+    },
+    markUploading: (prepareId, tusUploadId, tusLocation) => {
+      markUploadingStmt.run(tusUploadId, tusLocation, prepareId);
     },
     insertRemoteFile: (input) => {
       insertRemoteFileStmt.run(

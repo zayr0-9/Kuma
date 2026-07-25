@@ -23,6 +23,53 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T11:00+0100 — feature/phase1-tus-fold — tus transport folded into the control server + per-destination staging (spec 18.4/18.5)
+
+- **Done:** tus uploads now run over the authenticated HTTPS control server.
+  `api/uploadRouting.ts` (`registerUploadRoutes`) mounts tus with the same
+  `onRequest` auth (bearer + protocol gate); the staged file is named by its
+  **prepare id** (`namingFunction` reads it from tus `Upload-Metadata` — a validated
+  uuid bound to an owned prepare, never a client path), so staging GC reconciles
+  against `upload_prepare`. Because one `@tus/server` `FileStore` binds one directory
+  but staging must live on each destination volume for the atomic rename (spec
+  22/6.5), there is **one tus server per destination staging dir**, cached and routed
+  per-request by resolving the prepare first (owned + non-terminal + unexpired, all
+  checked before `reply.hijack()` so a rejection returns the JSON error envelope:
+  `unauthorised` / `upload_not_found` / `upload_expired` / `bad_request`).
+  `onUploadCreate` → `uploading` + links tus id/location (`files.markUploading`);
+  `onUploadFinish` → `uploaded`. Verified end to end: a real resumable TLS upload
+  (chunk → HEAD-resume → chunk) lands at `<dest>/.foldersync-staging/<prepareId>`
+  and commits byte-identically via the spike-6 `commitStagedFile`. The standalone
+  `uploadServer.ts` + `uploads.test.ts` were retired (superseded). 9 new tests
+  (5 endpoint, 3 metadata unit, 1 repo) replace the 3 retired; 118 desktop / 187
+  workspace green; lint/typecheck/format clean.
+- **Design notes / deferrals (ADR `desktop-tus-per-destination-staging.md`):** the
+  per-destination `Map<stagingDir, TusServer>` is the accepted design; central
+  staging + cross-volume copy was rejected (breaks the atomic-rename guarantee), as
+  was a custom multi-root datastore (more code than caching the maintained
+  `@tus/file-store`). **Commit trigger deferred:** the finish hook only marks
+  `uploaded`; the commit slice must consume it (verify → hash → atomic rename →
+  persist `remote_file`/`remote_version` → `committed`, serialised per `(rootId,
+relativePath)` per spec 18.5) — and **worker-thread hashing** rides with it, since
+  that is the request path where large-file SHA-256 competes with the event loop.
+  Also deferred: enforcing `Upload-Length` against the prepare's `expected_size`.
+- **Files:** `apps/desktop/src/main/api/uploadRouting.ts` (new),
+  `apps/desktop/src/main/api/controlServer.ts`,
+  `apps/desktop/src/main/db/repositories/files.ts`,
+  `apps/desktop/src/main/api/uploadServer.ts` (deleted),
+  `apps/desktop/test/uploads.test.ts` (deleted),
+  `apps/desktop/test/uploadRouting.test.ts` (new), `apps/desktop/test/db.test.ts`,
+  ADR `docs/architecture-decisions/desktop-tus-per-destination-staging.md` (new) +
+  supersession note on `spike-6-desktop-atomic-commit.md`.
+- **PR:** branch `feature/phase1-tus-fold` pushed — open + squash-merge.
+- **Docs updated:** `agent_desktop.md`, two ADRs, this record.
+- **Follow-ups:** next slice — **commit-on-finish + worker-thread hashing**: drive
+  the commit pipeline from the finish hook (serialised per path), offload SHA-256 to
+  a worker thread, and persist the version rows (the real upsert-and-supersede that
+  `insertRemoteFile`/`insertRemoteVersion` stand in for). Then `POST /v1/files/delete`,
+  `GET /v1/sync/status`, rate limiting, and the desktop-UI slice. `controlServer.ts`
+  is ~420 lines — still fine, but split into `api/routes/*` when delete/status land.
+
 ### 2026-07-25T10:40+0100 — feature/phase1-files-prepare — Files prepare + status + file-sync repositories (spec 25.2/22.2/6.5)
 
 - **Done:** `POST /v1/files/prepare` and `GET /v1/files/prepare/:prepareId` end to
