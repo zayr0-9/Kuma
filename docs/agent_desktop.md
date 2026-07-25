@@ -101,15 +101,27 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   `test/controlServer.test.ts` make real TLS requests (server cert supplied as
   `ca`, so a wrong cert fails the handshake — proves the pinned identity is served).
   Injectable `now` clock for deterministic last-seen.
-- Not yet built: `POST /v1/pair` + pairing window/secret + token issuance +
-  failed-auth rate limiting (spec 24.6); `POST /v1/roots/register` (overlap guard);
-  `POST /v1/files/prepare` + status + `POST /v1/files/delete`; `GET /v1/sync/status`;
-  folding the tus mount (`uploadServer.ts`) into the HTTPS control server (with
-  auth and a prepare-keyed `namingFunction`); hash worker-thread offload;
-  safeStorage key wrapping. The DB summary row for `desktop_identity` is written
-  when identity is wired into the main process (identity currently persists to
-  files only via `identityStore.ts`); `GET /v1/device` reads the in-memory
-  identity summary.
+- **Pairing built** (spec 24.3/24.5): `auth/pairingWindow.ts`
+  (`createPairingWindow` — five-minute window, one 256-bit one-time secret,
+  constant-time compare, one-time consume, injectable clock/secret; `activeSecret()`
+  stays main-process only for QR rendering), `auth/token.ts` `generateBearerToken`
+  (256-bit base64url), and `POST /v1/pair` on the control server (public route —
+  the phone has no token yet). The handler validates the body, checks mutual
+  protocol support, consumes the secret only if otherwise valid (never burns the
+  window on a client error), mints a token, and upserts `paired_device` via
+  `devices.recordPairing` (re-pairing reissues rather than colliding on the PK).
+  New generic error code `bad_request` added to the protocol + spec. 12 new tests
+  (7 endpoint incl. re-pair + one-time replay, 5 window unit).
+- Not yet built: failed-auth / pairing brute-force **rate limiting** (spec 24.6,
+  deferred here — 256-bit secret + hashed tokens make it non-blocking for the
+  slice); `POST /v1/roots/register` (overlap guard); `POST /v1/files/prepare` +
+  status + `POST /v1/files/delete`; `GET /v1/sync/status`; folding the tus mount
+  (`uploadServer.ts`) into the HTTPS control server (with auth and a prepare-keyed
+  `namingFunction`); hash worker-thread offload; safeStorage key wrapping; the QR
+  **image** rendering + renderer/IPC (only the payload/secret plumbing exists). The
+  DB summary row for `desktop_identity` is written when identity is wired into the
+  main process (identity currently persists to files only via `identityStore.ts`);
+  `GET /v1/device` reads the in-memory identity summary.
 
 ## Update this file when
 

@@ -5,10 +5,12 @@ import {
   deviceResponseSchema,
   errorResponseSchema,
   healthResponseSchema,
+  pairResponseSchema,
 } from '@foldersync/contracts';
 import { HEADER_PROTOCOL, HEADER_REQUEST_ID } from '@foldersync/protocol';
 import { openDatabase, createRepositories, type Database } from '../src/main/db/index.ts';
 import { createControlServer } from '../src/main/api/controlServer.ts';
+import { createPairingWindow, type PairingWindow } from '../src/main/auth/pairingWindow.ts';
 import { generateDesktopIdentity, type DesktopIdentity } from '../src/main/auth/identity.ts';
 import { hashToken } from '../src/main/auth/token.ts';
 
@@ -19,6 +21,8 @@ import { hashToken } from '../src/main/auth/token.ts';
 const TOKEN = 'tok_super_secret_value';
 const CLOCK = '2026-07-25T12:00:00.000Z';
 const A_UUID = '11111111-2222-4333-8444-555555555555';
+const PHONE_UUID = '99999999-8888-4777-8666-555555555555';
+const KNOWN_SECRET = 'A'.repeat(43); // valid base64Url32 secret shape
 
 interface Response {
   status: number;
@@ -30,6 +34,7 @@ let db: Database;
 let identity: DesktopIdentity;
 let app: FastifyInstance;
 let baseUrl: string;
+let pairingWindow: PairingWindow;
 
 // node:https verifies against the server's own self-signed cert supplied as `ca`,
 // which proves the server presents the pinned identity (a wrong cert fails the
@@ -87,10 +92,16 @@ beforeEach(async () => {
     pairedAt: '2026-07-24T00:00:00.000Z',
   });
 
+  pairingWindow = createPairingWindow({
+    now: () => new Date(CLOCK),
+    generateSecret: () => KNOWN_SECRET,
+  });
+
   app = createControlServer({
     tls: { key: identity.privateKeyPem, cert: identity.certificatePem },
     identity: { deviceId: identity.deviceId, name: 'Karn-PC' },
     repositories,
+    pairingWindow,
     now: () => new Date(CLOCK),
   });
   baseUrl = await app.listen({ port: 0, host: '127.0.0.1' });
@@ -172,5 +183,113 @@ describe('request id propagation', () => {
     expect(res.headers[HEADER_REQUEST_ID]).toBe(A_UUID);
     // unauthenticated (no token) → error envelope carries the same request id
     expect(errorResponseSchema.parse(res.json()).error.requestId).toBe(A_UUID);
+  });
+});
+
+const JSON_HEADERS = { 'content-type': 'application/json' };
+
+function pairBody(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    secret: KNOWN_SECRET,
+    deviceId: PHONE_UUID,
+    deviceName: 'Pixel 8',
+    supportedProtocolVersions: [1],
+    ...overrides,
+  });
+}
+
+describe('POST /v1/pair', () => {
+  it('pairs during an open window and issues a working token', async () => {
+    pairingWindow.open();
+    const res = await call('POST', '/v1/pair', JSON_HEADERS, pairBody());
+    expect(res.status).toBe(200);
+
+    const paired = pairResponseSchema.parse(res.json());
+    expect(paired.desktopDeviceId).toBe(identity.deviceId);
+    expect(paired.protocolVersion).toBe(1);
+
+    // The device is persisted with a hashed token, not the plaintext.
+    const repos = createRepositories(db);
+    const device = repos.devices.getByDeviceId(PHONE_UUID);
+    expect(device?.tokenHash).toBe(hashToken(paired.deviceToken));
+    expect(device?.tokenHash).not.toBe(paired.deviceToken);
+
+    // The freshly minted token authenticates a normal control request.
+    const authed = await call('GET', '/v1/device', {
+      authorization: `Bearer ${paired.deviceToken}`,
+      [HEADER_PROTOCOL]: '1',
+    });
+    expect(authed.status).toBe(200);
+  });
+
+  it('rejects a wrong secret without pairing', async () => {
+    pairingWindow.open();
+    const res = await call('POST', '/v1/pair', JSON_HEADERS, pairBody({ secret: 'B'.repeat(43) }));
+    expect(res.status).toBe(403);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('pairing_expired');
+  });
+
+  it('rejects pairing when no window is open', async () => {
+    const res = await call('POST', '/v1/pair', JSON_HEADERS, pairBody());
+    expect(res.status).toBe(403);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('pairing_expired');
+  });
+
+  it('is one-time: replaying the secret after a successful pair fails', async () => {
+    pairingWindow.open();
+    expect((await call('POST', '/v1/pair', JSON_HEADERS, pairBody())).status).toBe(200);
+    const replay = await call('POST', '/v1/pair', JSON_HEADERS, pairBody());
+    expect(replay.status).toBe(403);
+    expect(errorResponseSchema.parse(replay.json()).error.code).toBe('pairing_expired');
+  });
+
+  it('rejects a phone with no mutually supported protocol without burning the window', async () => {
+    pairingWindow.open();
+    const res = await call(
+      'POST',
+      '/v1/pair',
+      JSON_HEADERS,
+      pairBody({ supportedProtocolVersions: [2] }),
+    );
+    expect(res.status).toBe(400);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('protocol_version_unsupported');
+    // window survived — a valid attempt still succeeds
+    expect((await call('POST', '/v1/pair', JSON_HEADERS, pairBody())).status).toBe(200);
+  });
+
+  it('rejects a malformed body with bad_request', async () => {
+    pairingWindow.open();
+    const res = await call(
+      'POST',
+      '/v1/pair',
+      JSON_HEADERS,
+      JSON.stringify({ secret: KNOWN_SECRET, deviceName: 'x', supportedProtocolVersions: [1] }),
+    );
+    expect(res.status).toBe(400);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('bad_request');
+  });
+
+  it('re-pairing the same device issues a new token and supersedes the old one', async () => {
+    pairingWindow.open();
+    const first = pairResponseSchema.parse(
+      (await call('POST', '/v1/pair', JSON_HEADERS, pairBody())).json(),
+    );
+    pairingWindow.open();
+    const second = pairResponseSchema.parse(
+      (await call('POST', '/v1/pair', JSON_HEADERS, pairBody())).json(),
+    );
+    expect(second.deviceToken).not.toBe(first.deviceToken);
+
+    // old token no longer authenticates; new one does
+    const oldAuth = await call('GET', '/v1/device', {
+      authorization: `Bearer ${first.deviceToken}`,
+      [HEADER_PROTOCOL]: '1',
+    });
+    expect(oldAuth.status).toBe(401);
+    const newAuth = await call('GET', '/v1/device', {
+      authorization: `Bearer ${second.deviceToken}`,
+      [HEADER_PROTOCOL]: '1',
+    });
+    expect(newAuth.status).toBe(200);
   });
 });

@@ -1604,6 +1604,7 @@ Returns mapping health, pending commits and server disk-space state.
 
 Required codes include:
 
+- `bad_request`
 - `unauthorised`
 - `protocol_version_unsupported`
 - `pairing_expired`

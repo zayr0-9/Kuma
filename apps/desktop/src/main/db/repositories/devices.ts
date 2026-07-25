@@ -28,6 +28,10 @@ export interface PairedDeviceInput {
 
 export interface DevicesRepository {
   insert(input: PairedDeviceInput): void;
+  // Pairing / re-pairing (spec 24.5): upsert by device id so a phone that re-pairs
+  // gets a fresh token instead of a primary-key violation. Re-pairing clears any
+  // prior revocation and supersedes the old token hash.
+  recordPairing(input: PairedDeviceInput): void;
   getByDeviceId(phoneDeviceId: string): PairedDeviceRow | null;
   // Auth hot path (spec 24.6): resolves a presented token (already hashed by the
   // caller) to an active pairing. The compared value is a hash, not the secret,
@@ -44,6 +48,16 @@ export function createDevicesRepository(db: Database): DevicesRepository {
       (phone_device_id, phone_display_name, token_hash, paired_at, last_seen_at, revoked_at)
     VALUES (?, ?, ?, ?, NULL, NULL)
   `);
+  const recordPairingStmt = db.prepare(`
+    INSERT INTO paired_device
+      (phone_device_id, phone_display_name, token_hash, paired_at, last_seen_at, revoked_at)
+    VALUES (?, ?, ?, ?, NULL, NULL)
+    ON CONFLICT (phone_device_id) DO UPDATE SET
+      phone_display_name = excluded.phone_display_name,
+      token_hash = excluded.token_hash,
+      paired_at = excluded.paired_at,
+      revoked_at = NULL
+  `);
   const byIdStmt = db.prepare('SELECT * FROM paired_device WHERE phone_device_id = ?');
   const byTokenStmt = db.prepare(
     'SELECT * FROM paired_device WHERE token_hash = ? AND revoked_at IS NULL',
@@ -58,6 +72,14 @@ export function createDevicesRepository(db: Database): DevicesRepository {
   return {
     insert: (input) => {
       insertStmt.run(input.phoneDeviceId, input.phoneDisplayName, input.tokenHash, input.pairedAt);
+    },
+    recordPairing: (input) => {
+      recordPairingStmt.run(
+        input.phoneDeviceId,
+        input.phoneDisplayName,
+        input.tokenHash,
+        input.pairedAt,
+      );
     },
     getByDeviceId: (phoneDeviceId) => mapRow(byIdStmt.get(phoneDeviceId)),
     findActiveByTokenHash: (tokenHash) => mapRow(byTokenStmt.get(tokenHash)),

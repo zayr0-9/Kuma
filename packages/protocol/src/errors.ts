@@ -1,6 +1,7 @@
 // Structured error codes of the control protocol (spec 25.3). New codes are added
 // here and to the spec list in the same PR.
 export const ERROR_CODES = [
+  'bad_request',
   'unauthorised',
   'protocol_version_unsupported',
   'pairing_expired',

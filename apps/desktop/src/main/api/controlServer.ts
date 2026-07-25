@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { deviceResponseSchema, healthResponseSchema, uuidSchema } from '@foldersync/contracts';
+import {
+  deviceResponseSchema,
+  healthResponseSchema,
+  pairRequestSchema,
+  pairResponseSchema,
+  uuidSchema,
+} from '@foldersync/contracts';
 import {
   ENDPOINTS,
   HEADER_PROTOCOL,
@@ -8,7 +14,8 @@ import {
   PROTOCOL_VERSION,
 } from '@foldersync/protocol';
 import type { PairedDeviceRow, Repositories } from '../db/index.ts';
-import { hashToken } from '../auth/token.ts';
+import type { PairingWindow } from '../auth/pairingWindow.ts';
+import { generateBearerToken, hashToken } from '../auth/token.ts';
 import { ApiError, buildErrorResponse } from './errors.ts';
 
 // The desktop control API (spec 25) served over TLS on the pinned desktop identity
@@ -27,16 +34,19 @@ declare module 'fastify' {
 export interface ControlServerContext {
   // PEM key/cert of the desktop identity (spec 24.2). The phone pins this cert.
   tls: { key: string; cert: string };
-  // Authenticated identity summary returned by GET /v1/device.
+  // Authenticated identity summary returned by GET /v1/device, and the desktop
+  // identity echoed in the pairing response.
   identity: { deviceId: string; name: string };
   repositories: Repositories;
-  // Injectable clock so last-seen updates are deterministic in tests.
+  // Managed by the main process; POST /v1/pair consumes its one-time secret.
+  pairingWindow: PairingWindow;
+  // Injectable clock so last-seen and pairing timestamps are deterministic in tests.
   now?: () => Date;
 }
 
-// Routes reachable without a bearer token (spec 25.2). Everything else is
-// authenticated. `pair` joins this set when the pairing slice lands.
-const PUBLIC_ROUTES = new Set<string>([ENDPOINTS.health]);
+// Routes reachable without a bearer token (spec 25.2): health, and pair (the phone
+// has no token yet — it authenticates with the one-time secret in the body).
+const PUBLIC_ROUTES = new Set<string>([ENDPOINTS.health, ENDPOINTS.pair]);
 
 function parseBearerToken(header: unknown): string | null {
   if (typeof header !== 'string') return null;
@@ -123,6 +133,43 @@ export function createControlServer(context: ControlServerContext): FastifyInsta
       }),
     ),
   );
+
+  // POST /v1/pair (spec 24.5): available only during an open pairing window. The
+  // secret is consumed only after the request is otherwise valid, so a client
+  // error never burns the window. The token is returned once and stored only as a
+  // hash.
+  app.post(ENDPOINTS.pair, (request) => {
+    const parsed = pairRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new ApiError('bad_request', 'Malformed pairing request', { httpStatus: 400 });
+    }
+    const body = parsed.data;
+    if (!body.supportedProtocolVersions.includes(PROTOCOL_VERSION)) {
+      throw new ApiError('protocol_version_unsupported', 'No mutually supported protocol version', {
+        httpStatus: 400,
+      });
+    }
+    if (!context.pairingWindow.consume(body.secret)) {
+      throw new ApiError('pairing_expired', 'Pairing window closed or secret invalid', {
+        httpStatus: 403,
+      });
+    }
+    const token = generateBearerToken();
+    repositories.devices.recordPairing({
+      phoneDeviceId: body.deviceId,
+      phoneDisplayName: body.deviceName,
+      tokenHash: hashToken(token),
+      pairedAt: now().toISOString(),
+    });
+    return Promise.resolve(
+      pairResponseSchema.parse({
+        deviceToken: token,
+        desktopDeviceId: context.identity.deviceId,
+        desktopName: context.identity.name,
+        protocolVersion: PROTOCOL_VERSION,
+      }),
+    );
+  });
 
   return app;
 }
