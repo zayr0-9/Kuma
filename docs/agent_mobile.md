@@ -45,7 +45,17 @@ boundary), 32.2 (EAS workflow). UI changes also require
   EAS-managed (generated in the cloud on the first build). Build via
   `pnpm dlx eas-cli build --platform android --profile development`.
 - expo-* dependencies use Expo's `~` ranges on purpose (managed by
-  `expo install --fix`); everything else stays exact-pinned.
+  `expo install --fix`); everything else stays exact-pinned. `typescript` is in
+  `expo.install.exclude` (SDK 57 wants TS ~6; the workspace pins 5.9.3 for
+  typescript-eslint — revisit deliberately).
+- **pnpm layout is `nodeLinker: hoisted` and `autoInstallPeers: false`**
+  (pnpm-workspace.yaml — pnpm 11 ignores .npmrc). The isolated linker shipped
+  duplicate expo/expo-modules-core instances that failed the first EAS build.
+  Do not add `expo-modules-core` as a direct app dependency (expo provides it;
+  expo-doctor rejects it directly installed). `npx expo-doctor` in `apps/mobile`
+  is the check to run after dependency-layout changes.
+- EAS builds run on Node 24.18.0 (`"node"` in every eas.json profile) — the EAS
+  default image ships Node 22, which violates our engines field.
 
 ## Update this file when
 

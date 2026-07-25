@@ -3,7 +3,19 @@ packages:
   - packages/*
   - modules/*
 
+# pnpm 11 reads settings from this file — .npmrc is ignored (learned the hard way:
+# saveExact, node-linker and auto-install-peers were all silently inert there).
 saveExact: true
+engineStrict: true
+
+# React Native/Expo tooling requires a flat node_modules in pnpm monorepos
+# (expo.dev monorepo docs); the isolated linker creates duplicate native module
+# instances that break gradle autolinking and the runtime.
+nodeLinker: hoisted
+
+# peers must resolve to the app's single hoisted instances — auto-installing
+# them creates per-package duplicates of expo/expo-modules-core
+autoInstallPeers: false
 
 # postinstall scripts are blocked by default; these are the only packages allowed
 # to run them (binary downloads)

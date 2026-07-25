@@ -1,6 +1,5 @@
-// Follows the create-expo-module local-module template. Not compilable on this
-// machine (no Android toolchain — spec 32.1); the first EAS development build is
-// the verification.
+// Follows the create-expo-module local-module template. Verified by EAS build
+// (no Android toolchain on this machine — spec 32.1).
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
@@ -11,7 +10,9 @@ def expoModulesCorePlugin = new File(project(':expo-modules-core').projectDir.ab
 apply from: expoModulesCorePlugin
 applyKotlinExpoModulesCorePlugin()
 useCoreDependencies()
-useExpoPublishing()
+// sets compileSdk/minSdk/targetSdk from the app's root ext, with Expo defaults —
+// AGP hard-fails without compileSdk (learned from the first EAS build)
+useDefaultAndroidSdkVersions()
 
 android {
   namespace 'expo.modules.foldersync'

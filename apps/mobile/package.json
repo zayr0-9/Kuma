@@ -3,6 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "main": "expo-router/entry",
+  "expo": {
+    "install": {
+      "exclude": [
+        "typescript"
+      ]
+    }
+  },
   "scripts": {
     "start": "expo start",
     "typecheck": "tsc --noEmit"

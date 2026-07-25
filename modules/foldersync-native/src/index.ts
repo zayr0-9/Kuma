@@ -1,4 +1,4 @@
-import { requireOptionalNativeModule } from 'expo-modules-core';
+import { requireOptionalNativeModule } from 'expo';
 
 // TypeScript surface of the Kotlin module (spec 13.2). This interface grows in
 // lockstep with FolderSyncModule.kt; React Native asks for actions and observes

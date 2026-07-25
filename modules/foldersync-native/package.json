@@ -8,8 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "expo": "*",
-    "expo-modules-core": "*"
+    "expo": "*"
   },
   "devDependencies": {
     "typescript": "5.9.3"

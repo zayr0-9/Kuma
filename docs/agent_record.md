@@ -23,6 +23,29 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T04:30+0100 — fix/eas-android-build — First EAS build failure diagnosed and fixed
+
+- **Done:** EAS build `787a88d6` ERRORED with two gradle failures: (1)
+  `foldersync-native` build.gradle lacked `compileSdk` — fixed by adding
+  `useDefaultAndroidSdkVersions()` from ExpoModulesCorePlugin; (2)
+  `SoftwareComponent 'release' not found` on `:expo` — root cause was duplicate
+  expo/expo-modules-core instances from pnpm's isolated linker (expo-doctor
+  confirmed). Fixed by `nodeLinker: hoisted` + `autoInstallPeers: false` in
+  pnpm-workspace.yaml (pnpm 11 ignores .npmrc entirely — .npmrc deleted; all
+  settings live in pnpm-workspace.yaml now). Also: EAS build env pinned to Node
+  24.18.0 in eas.json (image default is Node 22 vs our engines >=24), typescript
+  added to `expo.install.exclude`, dropped `useExpoPublishing()` from the module
+  gradle (local module, never published). expo-doctor: 20/20 after removing
+  `expo-modules-core` as a direct dep.
+- **Files:** `pnpm-workspace.yaml`, `.npmrc` (deleted),
+  `modules/foldersync-native/android/build.gradle`, `apps/mobile/eas.json`,
+  `apps/mobile/package.json`, lockfile.
+- **PR:** none possible yet (no remote) — squash-merged locally to `main`, branch deleted.
+- **Docs updated:** `agent_mobile.md`, this record.
+- **Follow-ups:** rebuild queued after merge — verify it turns green, then install
+  the APK on the Samsung and check "Native module: pong". Hoisted layout is a
+  workspace-wide change: desktop suite re-verified in this branch.
+
 ### 2026-07-25T04:05+0100 — feature/eas-project-setup — EAS project linked, first dev build queued
 
 - **Done:** EAS project created and linked (`@sigma2/foldersync`, id
