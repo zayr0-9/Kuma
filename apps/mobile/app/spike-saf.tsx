@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { ReactElement } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   checkAccess,
   deleteDocument,
@@ -10,6 +10,7 @@ import {
   traverseTree,
 } from '../src/native/saf.ts';
 import type { PersistedPermission, TraversalResult, TraversedFile } from '../src/native/saf.ts';
+import { SpikeButton } from '../src/components/SpikeButton.tsx';
 
 // Spike 1 diagnostic harness (spec 35): exercises the SAF surface on the physical device.
 // This is a developer diagnostics screen, not a product surface — raw counts and absolute
@@ -142,16 +143,20 @@ export default function SafSpikeScreen(): ReactElement {
       )}
 
       <View style={styles.row}>
-        <Button label="Pick folder" onPress={onPick} disabled={!linked || busy !== null} />
-        <Button label="List grants" onPress={onListGrants} disabled={!linked || busy !== null} />
+        <SpikeButton label="Pick folder" onPress={onPick} disabled={!linked || busy !== null} />
+        <SpikeButton
+          label="List grants"
+          onPress={onListGrants}
+          disabled={!linked || busy !== null}
+        />
       </View>
       <View style={styles.row}>
-        <Button
+        <SpikeButton
           label="Check access"
           onPress={onCheckAccess}
           disabled={!linked || busy !== null || treeUri === null}
         />
-        <Button
+        <SpikeButton
           label="Traverse"
           onPress={onTraverse}
           disabled={!linked || busy !== null || treeUri === null}
@@ -196,7 +201,7 @@ export default function SafSpikeScreen(): ReactElement {
                 </Text>
                 <Text style={styles.muted}>{formatBytes(file.sizeBytes)}</Text>
               </View>
-              <Button label="Delete" onPress={() => onDelete(file)} disabled={busy !== null} />
+              <SpikeButton label="Delete" onPress={() => onDelete(file)} disabled={busy !== null} />
             </View>
           ))}
         </View>
@@ -236,51 +241,7 @@ export default function SafSpikeScreen(): ReactElement {
   );
 }
 
-function Button({
-  label,
-  onPress,
-  disabled,
-}: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-}): ReactElement {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        pressed && styles.buttonPressed,
-        disabled === true && styles.buttonDisabled,
-      ]}
-    >
-      <Text style={styles.buttonLabel}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  button: {
-    alignItems: 'center',
-    backgroundColor: '#1f2933',
-    borderRadius: 8,
-    flexGrow: 1,
-    justifyContent: 'center',
-    minHeight: 48,
-    paddingHorizontal: 16,
-  },
-  buttonDisabled: {
-    opacity: 0.4,
-  },
-  buttonLabel: {
-    color: '#ffffff',
-    fontWeight: '600',
-  },
-  buttonPressed: {
-    opacity: 0.7,
-  },
   card: {
     backgroundColor: '#f3f4f6',
     borderRadius: 8,

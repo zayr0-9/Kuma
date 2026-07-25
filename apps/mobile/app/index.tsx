@@ -18,6 +18,9 @@ export default function HomeScreen(): ReactElement {
       <Link href="/spike-saf" style={styles.link}>
         Open SAF spike
       </Link>
+      <Link href="/spike-service" style={styles.link}>
+        Open foreground-service spike
+      </Link>
       <StatusBar style="auto" />
     </View>
   );

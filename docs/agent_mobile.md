@@ -36,18 +36,21 @@ boundary), 32.2 (EAS workflow). UI changes also require
   `app.config.ts` (android package placeholder `dev.zayr.foldersync`), monorepo
   `metro.config.js`, `eas.json` with the development profile. Verified headlessly
   via `expo export --platform android` (Hermes bundle builds).
-- `src/native/` is the required import path for native calls; it handles the
-  module-not-linked state (`requireOptionalNativeModule` returns null on a stale
-  dev client). `src/native/index.ts` holds `pingNativeModule`; `src/native/saf.ts`
-  wraps the spike-1 SAF surface (`pickDirectory`, `listPersistedPermissions`,
-  `checkAccess`, `traverseTree`, `deleteDocument`, `releasePermission`) and throws
-  `NativeModuleUnavailableError` when the module is not linked.
-- **SAF spike harness** at `app/spike-saf.tsx` (route wired in `app/_layout.tsx`,
-  linked from the home screen) exercises the SAF surface on the physical device:
-  pick, list persisted grants, check access, traverse (counts/time), and per-file
-  controlled deletion behind a confirmation dialog. It is a developer diagnostics
-  screen — raw counts/absolute values are intentional (agent_design §4) — not a
-  product surface, so agent_design's parity checklist does not apply to it yet.
+- `src/native/` is the required import path for native calls. The
+  module-not-linked guard lives once in `src/native/module.ts`
+  (`requireNative` / `isNativeLinked` / `NativeModuleUnavailableError`, over
+  `requireOptionalNativeModule` which is null on a stale dev client) and is reused
+  by every wrapper. `src/native/index.ts` holds `pingNativeModule`;
+  `src/native/saf.ts` wraps the spike-1 SAF surface; `src/native/service.ts` wraps
+  the spike-2 foreground-service surface (`startSyncService` [also resumes],
+  `pauseSyncService`, `stopSyncService`, `getServiceStatus`).
+- **Spike diagnostic harnesses** (route in `app/_layout.tsx`, linked from the home
+  screen; developer diagnostics screens with intentional raw/absolute values per
+  agent_design §4 — NOT product surfaces, so the §5 parity checklist does not apply):
+  `app/spike-saf.tsx` (pick / list grants / check access / traverse / per-file
+  controlled delete behind a confirm) and `app/spike-service.tsx` (Start/Pause/
+  Resume/Stop + 1 s status polling + manual-check list + Samsung battery note). Both
+  use the shared `src/components/SpikeButton.tsx` (48dp touch target).
 - EAS project: `@sigma2/foldersync` (personal account `sigma2` /
   karn97uk@gmail.com), projectId in `app.config.ts` `extra.eas` — `eas init`
   cannot write to a TS config, so keep it updated by hand. Android keystore is
