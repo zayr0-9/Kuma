@@ -30,6 +30,9 @@ apps/desktop/release/
 .env
 .env.*
 !.env.example
+# build-time constants only (CSP toggles), no secrets — spec 33.3
+!apps/desktop/.env.development
+!apps/desktop/.env.production
 *.pem
 *.key
 *.p12

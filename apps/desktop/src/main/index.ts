@@ -24,6 +24,14 @@ function createWindow(): void {
 
   const rendererUrl = process.env['ELECTRON_RENDERER_URL'];
   if (rendererUrl) {
+    // Dev only: surface renderer console output (CSP violations, preload
+    // failures) in the terminal — a blank window must never be silent.
+    window.webContents.on('console-message', (event) => {
+      console.log(`[renderer:${event.level}] ${event.message}`);
+    });
+    window.webContents.on('preload-error', (_event, preloadPath, error) => {
+      console.error(`[preload-error] ${preloadPath}: ${error.message}`);
+    });
     void window.loadURL(rendererUrl);
   } else {
     void window.loadFile(join(import.meta.dirname, '../renderer/index.html'));

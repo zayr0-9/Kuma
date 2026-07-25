@@ -63,6 +63,11 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   incl. impersonator rejection; generate-once store, 0600 key file).
   `reflect-metadata` must stay imported before `@peculiar/x509`. Android halves
   of both spikes wait on the dev client.
+- Dev-loop gotchas (learned from the first GUI run): `externalizeDepsPlugin` is
+  mandatory on main+preload (without it the electron installer shim gets inlined
+  into the sandboxed preload and dies on `child_process`); dev CSP allows inline
+  scripts via `%VITE_CSP_SCRIPT_EXTRA%` env substitution only — production CSP
+  stays strict; renderer console/preload errors relay to the terminal in dev.
 - Not yet built: control API endpoints (auth, prepare, delete), SQLite metadata,
   pairing endpoint/window. Hash worker-thread offload lands with the control
   API wiring; safeStorage key wrapping lands with main-process wiring.

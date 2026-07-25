@@ -23,6 +23,27 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T09:05+0100 — fix/desktop-renderer-blank — Blank renderer fixed, first GUI run
+
+- **Done:** first real `pnpm dev:desktop` launch surfaced two renderer-killers:
+  (1) CSP `script-src 'self'` blocked Vite's inline React-refresh preamble in dev
+  — fixed with `%VITE_CSP_SCRIPT_EXTRA%` html-env substitution (.env.development
+  adds 'unsafe-inline', .env.production keeps it locked down); (2) the preload
+  bundle inlined the electron npm installer shim (requires child_process → dies
+  in the sandbox) because `externalizeDepsPlugin` was missing — fixed with the
+  plugin on main+preload plus explicit `external: ['electron']`. Preload now
+  0.25 kB. Also: renderer console + preload errors relay to the terminal in dev
+  (a blank window must never be silent), and App.tsx degrades to a visible
+  message when the bridge is absent.
+- **Files:** `apps/desktop/electron.vite.config.ts`, `src/main/index.ts`,
+  `src/renderer/**`, `.env.development/.env.production` (unignored — CSP toggles
+  only), `.gitignore`.
+- **PR:** none possible yet (no remote) — squash-merged locally to `main`, branch deleted.
+- **Docs updated:** `agent_desktop.md`, this record.
+- **Follow-ups:** phone → Metro blocked by the macOS firewall ("node" set to
+  Block incoming connections); user flipping it to Allow. Dev-client connect via
+  QR or manual http://192.168.0.250:8081 after that.
+
 ### 2026-07-25T04:15+0100 — spike/discovery-tls-desktop — Spikes 3 & 4 desktop halves passed
 
 - **Done:** DNS-SD advertisement via @homebridge/ciao verified by a live
