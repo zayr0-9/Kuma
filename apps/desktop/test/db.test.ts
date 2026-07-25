@@ -371,6 +371,15 @@ describe('files repository', () => {
     ).toBeNull();
   });
 
+  it('marks a prepare uploading and links the tus id/location', () => {
+    createPrepare('prep-1');
+    repos.files.markUploading('prep-1', 'prep-1', '/v1/uploads/prep-1');
+    const prepare = repos.files.getPrepare('prep-1');
+    expect(prepare?.state).toBe('uploading');
+    expect(prepare?.tusUploadId).toBe('prep-1');
+    expect(prepare?.tusLocation).toBe('/v1/uploads/prep-1');
+  });
+
   it('rejects a prepare for an unknown device (foreign key)', () => {
     expect(() =>
       repos.files.createPrepare({

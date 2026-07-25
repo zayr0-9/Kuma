@@ -37,6 +37,12 @@ All verified by automated tests (`apps/desktop/test/commit.test.ts`,
    A chunked upload with an interruption resumed via HEAD offset discovery and
    committed byte-identically (64 KB + tail payload).
 
+> **Superseded (2026-07-25):** the standalone `api/uploadServer.ts` and its
+> `apps/desktop/test/uploads.test.ts` used here were retired when tus was folded
+> into the authenticated control server with per-destination staging routing (see
+> `desktop-tus-per-destination-staging.md`). The same resumable-upload-then-commit
+> proof now lives in `apps/desktop/test/uploadRouting.test.ts`.
+
 ## Decisions recorded
 
 - **Reserved-path guard added:** wire paths whose first segment starts with

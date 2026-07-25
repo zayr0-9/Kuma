@@ -26,6 +26,7 @@ import { findDestinationOverlap } from '../storage/destinationOverlap.ts';
 import { isReservedRelativePath } from '../storage/layout.ts';
 import { resolveDestinationPath } from '../storage/pathSafety.ts';
 import { ApiError, buildErrorResponse } from './errors.ts';
+import { registerUploadRoutes } from './uploadRouting.ts';
 
 // The desktop control API (spec 25) served over TLS on the pinned desktop identity
 // (spec 24). This slice establishes the server and its cross-cutting middleware —
@@ -432,6 +433,10 @@ export function createControlServer(context: ControlServerContext): FastifyInsta
       }),
     );
   });
+
+  // tus upload transport (spec 18.4/18.5): authenticated by the onRequest hook like
+  // every other non-public route, routed to per-destination staging by prepare id.
+  registerUploadRoutes(app, { repositories, now });
 
   return app;
 }

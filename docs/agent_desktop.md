@@ -55,9 +55,10 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   preserve or adopt-in-place → fsync → atomic rename; crash-recovery converges),
   `src/main/sync/stagingGc.ts` (spec 22.3), `src/main/storage/layout.ts`
   (managed dirs, reserved-path guard, trash/conflict timestamps),
-  `src/main/storage/hash.ts`, `src/main/storage/durability.ts`, and
-  `src/main/api/uploadServer.ts` (Fastify + @tus/server with hijacked raw
-  responses — proven resumable end to end).
+  `src/main/storage/hash.ts`, `src/main/storage/durability.ts`, and the tus
+  transport (Fastify + @tus/server with hijacked raw responses — proven resumable
+  end to end; the standalone `uploadServer.ts` was later folded into the control
+  server, see the upload-transport bullet below).
 - **Spikes 3 and 4, desktop halves PASSED** (ADRs in `architecture-decisions/`):
   `src/main/discovery/advertise.ts` (ciao DNS-SD, TXT surface pinned to
   v/id/name/tls, verified by a bonjour-service browser) and
@@ -145,21 +146,36 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   `upload_prepare` / `remote_file` / `remote_version` trio; `resolveDestinationPath`
   now also returns the normalised `relativePath` used as the storage key. 20 new
   tests (14 endpoint, 6 repository).
-- Not yet built: failed-auth / pairing brute-force **rate limiting** (spec 24.6,
-  deferred here — 256-bit secret + hashed tokens make it non-blocking for the
-  slice); the desktop-side mapping-approval IPC (destination picker →
-  `roots.create` with an overlap check at creation time too); `POST /v1/files/delete`;
-  `GET /v1/sync/status`; **folding the tus mount** (`uploadServer.ts`) into the
-  HTTPS control server (with auth and a prepare-keyed `namingFunction`) — deferred
-  to its own slice because it has an unresolved design question: one `@tus/server`
-  `FileStore` has a single directory, but staging must live inside each destination
-  volume for the atomic rename (spec 22), so per-root routing needs deciding (likely
-  an ADR); **hash worker-thread offload** (spec 20.2) rides with the commit-verify
-  slice where it is actually exercised; safeStorage key wrapping; the QR **image**
-  rendering + renderer/IPC (only the payload/secret plumbing exists). The DB summary
-  row for `desktop_identity` is written when identity is wired into the main process
-  (identity currently persists to files only via `identityStore.ts`); `GET /v1/device`
-  reads the in-memory identity summary.
+- **Upload transport folded** (spec 18.4/18.5; ADR
+  `desktop-tus-per-destination-staging.md`): `api/uploadRouting.ts`
+  (`registerUploadRoutes`) mounts tus on the authenticated control server. Auth is
+  the same `onRequest` hook (bearer + protocol gate); the staged file is named by
+  its **prepare id** (`namingFunction` from tus metadata — a validated uuid bound to
+  an owned prepare, never a client path), so staging GC reconciles against
+  `upload_prepare`. Because one `@tus/server` `FileStore` binds one directory but
+  staging must live on each destination volume for the atomic rename (spec 22/6.5),
+  there is **one tus server per destination staging dir**, cached and routed
+  per-request by resolving the prepare first (owned + non-terminal + unexpired →
+  else `unauthorised`/`upload_not_found`/`upload_expired`/`bad_request`, all before
+  `reply.hijack()`). `onUploadCreate` flips the prepare to `uploading` and links the
+  tus id/location (`files.markUploading`); `onUploadFinish` sets `uploaded`. The
+  standalone `uploadServer.ts` was retired. 9 new tests (5 endpoint incl. a real
+  resumable TLS upload → per-destination staging → atomic commit, 3 metadata unit,
+  1 repo) replace the 3 retired `uploadServer.ts` tests. 118 desktop / 187
+  workspace green.
+- Not yet built: **commit trigger** on upload finish (the hook sets `uploaded`; the
+  commit slice must consume it → verify → hash → atomic rename → persist
+  `remote_file`/`remote_version` → `committed`, serialised per `(rootId,
+relativePath)` per spec 18.5) and **hash worker-thread offload** (spec 20.2) which
+  rides with it; enforcing `Upload-Length` against the prepare's `expected_size`;
+  failed-auth / pairing brute-force **rate limiting** (spec 24.6, deferred — 256-bit
+  secret + hashed tokens make it non-blocking); the desktop-side mapping-approval IPC
+  (destination picker → `roots.create` with an overlap check at creation time too);
+  `POST /v1/files/delete`; `GET /v1/sync/status`; safeStorage key wrapping; the QR
+  **image** rendering + renderer/IPC (only the payload/secret plumbing exists). The DB
+  summary row for `desktop_identity` is written when identity is wired into the main
+  process (identity currently persists to files only via `identityStore.ts`);
+  `GET /v1/device` reads the in-memory identity summary.
 
 ## Update this file when
 
