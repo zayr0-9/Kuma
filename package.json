@@ -1,0 +1,21 @@
+{
+  "name": "foldersync",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev:mobile": "pnpm --filter mobile start --dev-client",
+    "dev:desktop": "pnpm --filter desktop dev",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "build": "pnpm -r build",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.6.0",
+    "typescript": "^5.9.0"
+  }
+}
