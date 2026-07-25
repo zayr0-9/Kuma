@@ -7,6 +7,7 @@ export default function RootLayout(): ReactElement {
       <Stack.Screen name="index" options={{ title: 'FolderSync' }} />
       <Stack.Screen name="spike-saf" options={{ title: 'SAF spike' }} />
       <Stack.Screen name="spike-service" options={{ title: 'Service spike' }} />
+      <Stack.Screen name="spike-pairing" options={{ title: 'Discovery + pairing spike' }} />
     </Stack>
   );
 }

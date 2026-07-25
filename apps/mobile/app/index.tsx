@@ -21,6 +21,9 @@ export default function HomeScreen(): ReactElement {
       <Link href="/spike-service" style={styles.link}>
         Open foreground-service spike
       </Link>
+      <Link href="/spike-pairing" style={styles.link}>
+        Open discovery + pairing spike
+      </Link>
       <StatusBar style="auto" />
     </View>
   );

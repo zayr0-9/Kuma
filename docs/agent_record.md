@@ -23,6 +23,59 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-26T00:03+0100 — spike/3-4-android-discovery-pairing — Spikes 3 + 4: Android discovery + pinned-TLS pairing (implemented)
+
+- **Done:** the "find and connect to the desktop" pair, one branch. **Spike 3** —
+  `NsdDiscovery.kt` browses `_foldersync._tcp` via `NsdManager` (classic discover+resolve
+  with a single-flight resolve queue to dodge the API-34 concurrent-resolve failure;
+  multicast lock held only while discovering; TXT `v/id/name/tls` decoded as ASCII). Pull
+  model: `startDiscovery`/`stopDiscovery`/`getDiscoveredDesktops`; the harness polls.
+  **Spike 4** — `PinnedTls.kt` is a **custom single-key `X509TrustManager`** pinning
+  `SHA-256(SPKI)` (base64url, decoded `URL_SAFE|NO_PADDING|NO_WRAP`, constant-time
+  `MessageDigest.isEqual`) — NOT OkHttp `CertificatePinner` (which never runs for a
+  self-signed cert); accept-only-pinned, hostname bypassed (key is the identity), never
+  trust-all. `PairingManager.kt` parses the `foldersync://pair?…` QR (mirrors the contracts
+  grammar), `POST /v1/pair` over the pinned client via **`org.json`** (no kotlinx-
+  serialization plugin), and persists the paired desktop; `TokenVault.kt` encrypts the
+  bearer token with **AndroidKeyStore AES/GCM**. `build.gradle` gained `implementation
+'com.squareup.okhttp3:okhttp:4.9.2'` (byte-identical to RN's bundled okhttp — the
+  expo-asset precedent). Module surface + TS DTOs + `discovery.ts`/`pairing.ts` wrappers +
+  `app/spike-pairing.tsx` harness (discovery list + paste-QR pairing + paired list/remove).
+  **No manifest change; no expo-camera.**
+- **How it was grounded (ultracode):** a 4-agent research workflow read the desktop
+  `identity.ts`/`controlServer.ts`/`advertise.ts` + golden fixtures and validated the risky
+  Android APIs; 2 agents (discovery, TLS/keystore/gradle) succeeded, 2 (pairing, camera) hit
+  the structured-output cap so I ground those directly. I independently verified the
+  security-critical facts (pin = `base64url(sha256(spki))` = Kotlin
+  `sha256(cert.publicKey.encoded)`; `/v1/pair` public, no protocol header). Then an
+  **adversarial review subagent** checked the Kotlin against okhttp 4.9.2 / org.json /
+  NsdManager / Keystore / Expo DSL in `node_modules`: **no blockers**, pinning confirmed
+  correct, `warningsAsErrors` not applied on the consumer path. One fix applied
+  (`stopDiscovery` returned `Unit?` → made definite `Unit`).
+- **Design calls:** in-app camera QR scanning deferred to the Phase-1 pairing UI (spike's
+  risk is the TLS handshake, not scanning) — paste the QR string; keeps the branch free of a
+  native dep + config plugin. Discovery is pull (consistent with spike 2), events deferred.
+  Token stored per single desktop (MVP one-phone-one-desktop); Room-backed multi-device is
+  the engine's job.
+- **Gates (headless):** typecheck, lint, 249 tests, `expo export`, prettier — all green.
+- **Verification boundary:** Kotlin cannot compile here (spec 32.1). A cloud EAS dev build
+  was triggered after push (see follow-ups) — first compile of the discovery + pairing
+  Kotlin; a Samsung run confirms the pass conditions (discover the desktop; pair via QR
+  paste; reject a wrong cert → `pin_mismatch`; survive IP change).
+- **Files:** `modules/foldersync-native/android/src/main/java/expo/modules/foldersync/{NsdDiscovery,PinnedTls,TokenVault,PairingManager}.kt (new),FolderSyncModule.kt}`,
+  `modules/foldersync-native/android/build.gradle`, `modules/foldersync-native/src/index.ts`,
+  `apps/mobile/src/native/{discovery,pairing}.ts (new)`,
+  `apps/mobile/app/{spike-pairing.tsx (new),_layout.tsx,index.tsx}`,
+  ADRs `spike-3-mdns-discovery.md` + `spike-4-pinned-tls.md` (Android-half sections).
+- **PR:** branch `spike/3-4-android-discovery-pairing` pushed — open + squash-merge.
+- **Docs updated:** `agent_native.md`, `agent_mobile.md`, spike-3 + spike-4 ADRs, this record.
+- **Follow-ups:** verify the EAS build goes green (first compile of this Kotlin; watch for
+  okhttp classpath / NsdManager / Keystore surprises), install on the Samsung, run
+  `spike-pairing` and record spike-3 + spike-4 pass conditions in their ADRs. To test pairing
+  you need the desktop showing a QR — run the desktop, start pairing, scan its QR with any
+  reader to copy the `foldersync://pair?…` string, paste into the harness. Next Android spike:
+  **5 (tus direct URI upload)**. Then the scan engine + Room DB and the phone's Phase-1 path.
+
 ### 2026-07-25T19:16+0100 — spike/2-foreground-service — Spike 2: native foreground service (Android half implemented)
 
 - **Done:** the second Android spike. `FolderSyncService.kt` is a `connectedDevice`

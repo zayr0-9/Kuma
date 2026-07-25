@@ -43,14 +43,20 @@ boundary), 32.2 (EAS workflow). UI changes also require
   by every wrapper. `src/native/index.ts` holds `pingNativeModule`;
   `src/native/saf.ts` wraps the spike-1 SAF surface; `src/native/service.ts` wraps
   the spike-2 foreground-service surface (`startSyncService` [also resumes],
-  `pauseSyncService`, `stopSyncService`, `getServiceStatus`).
+  `pauseSyncService`, `stopSyncService`, `getServiceStatus`); `src/native/discovery.ts`
+  wraps spike-3 DNS-SD discovery (`startDiscovery`/`stopDiscovery`/`getDiscoveredDesktops`,
+  pull model); `src/native/pairing.ts` wraps spike-4 pinned-TLS pairing
+  (`startPairingFromQr` → discriminated `PairingResult`, `listPairedDevices`,
+  `removePairedDevice`).
 - **Spike diagnostic harnesses** (route in `app/_layout.tsx`, linked from the home
   screen; developer diagnostics screens with intentional raw/absolute values per
   agent_design §4 — NOT product surfaces, so the §5 parity checklist does not apply):
-  `app/spike-saf.tsx` (pick / list grants / check access / traverse / per-file
-  controlled delete behind a confirm) and `app/spike-service.tsx` (Start/Pause/
-  Resume/Stop + 1 s status polling + manual-check list + Samsung battery note). Both
-  use the shared `src/components/SpikeButton.tsx` (48dp touch target).
+  `app/spike-saf.tsx` (SAF), `app/spike-service.tsx` (foreground service), and
+  `app/spike-pairing.tsx` (discovery list + paste-a-`foldersync://pair?…`-code pairing +
+  paired-device list/remove). All use the shared `src/components/SpikeButton.tsx` (48dp
+  touch target). In-app camera QR scanning (`expo-camera`) is deliberately NOT added yet —
+  it belongs to the Phase-1 pairing UI; the spike pastes the QR string, keeping this branch
+  free of a new native dependency + config plugin.
 - EAS project: `@sigma2/foldersync` (personal account `sigma2` /
   karn97uk@gmail.com), projectId in `app.config.ts` `extra.eas` — `eas init`
   cannot write to a TS config, so keep it updated by hand. Android keystore is

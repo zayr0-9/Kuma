@@ -21,3 +21,12 @@ android {
     versionName '0.0.0'
   }
 }
+
+dependencies {
+  // okhttp is already on the app RUNTIME classpath via react-android (`api(okhttp3)`),
+  // but NOT on this local module's COMPILE classpath (expo-modules-core pulls react-android
+  // via `implementation`). Pin byte-identical to the version React Native 0.86 ships (4.9.2)
+  // so Gradle resolves to a single artifact — no duplicate class, no version skew. This is
+  // the same declaration Expo's own expo-asset module uses. (Spike 4: pinned-TLS pairing.)
+  implementation 'com.squareup.okhttp3:okhttp:4.9.2'
+}

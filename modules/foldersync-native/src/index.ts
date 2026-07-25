@@ -70,6 +70,40 @@ export interface ServiceStatus {
   updatedAtMs: number;
 }
 
+/** A desktop discovered over DNS-SD (spec 23). host/port populated once resolved. */
+export interface DiscoveredDesktop {
+  serviceName: string;
+  host: string | null;
+  port: number;
+  deviceId: string | null;
+  displayName: string | null;
+  protocolVersion: number | null;
+  tls: boolean;
+}
+
+/** Outcome of pairing from a scanned/pasted QR payload (spec 24). */
+export type PairingResult =
+  | { ok: true; deviceId: string; displayName: string }
+  | {
+      ok: false;
+      reason:
+        | 'wrong_scheme'
+        | 'invalid_fields'
+        | 'pin_mismatch'
+        | 'network'
+        | 'rejected'
+        | 'protocol_mismatch';
+    };
+
+/** A paired desktop (non-secret metadata; the token stays Keystore-encrypted, native-only). */
+export interface PairedDevice {
+  deviceId: string;
+  displayName: string;
+  host: string;
+  port: number;
+  pairedAt: string;
+}
+
 export interface FolderSyncNativeModule {
   ping(): string;
 
@@ -87,6 +121,16 @@ export interface FolderSyncNativeModule {
   pauseSyncService(): Promise<void>;
   stopSyncService(): Promise<void>;
   getServiceStatus(): Promise<ServiceStatus>;
+
+  // Spike 3 — DNS-SD discovery (spec 35, 23). Pull model: poll getDiscoveredDesktops.
+  startDiscovery(): Promise<void>;
+  stopDiscovery(): Promise<void>;
+  getDiscoveredDesktops(): Promise<DiscoveredDesktop[]>;
+
+  // Spike 4 — pinned-TLS pairing (spec 35, 24). QR parsed + verified natively.
+  startPairingFromQr(payload: string): Promise<PairingResult>;
+  listPairedDevices(): Promise<PairedDevice[]>;
+  removePairedDevice(deviceId: string): Promise<void>;
 }
 
 // null when the running dev client was built before this module existed —
