@@ -3,6 +3,8 @@ import type { PrepareState } from '@foldersync/contracts';
 import type { Database } from '../database.ts';
 import { asInt, asIntOrNull, asRow, asText, asTextOrNull } from '../row.ts';
 import type {
+  DeletionAppliedAction,
+  DeletionEventRow,
   RemoteFileRow,
   RemoteFileState,
   RemoteVersionRow,
@@ -79,6 +81,20 @@ function mapRemoteVersion(raw: unknown): RemoteVersionRow | null {
   };
 }
 
+function mapDeletionEvent(raw: unknown): DeletionEventRow | null {
+  const r = asRow(raw);
+  if (r === null) return null;
+  return {
+    eventId: asText(r.event_id),
+    remoteFileId: asTextOrNull(r.remote_file_id),
+    expectedVersionId: asTextOrNull(r.expected_version_id),
+    relativePath: asText(r.relative_path),
+    appliedAction: asText(r.applied_action) as DeletionAppliedAction,
+    trashPath: asTextOrNull(r.trash_path),
+    appliedAt: asText(r.applied_at),
+  };
+}
+
 export interface CreatePrepareInput {
   prepareId: string;
   phoneDeviceId: string;
@@ -88,6 +104,20 @@ export interface CreatePrepareInput {
   expectedSize: number;
   createdAt: string;
   expiresAt: string;
+}
+
+// An applied remote deletion (spec 21.1, 25.2), keyed by the client event id for
+// idempotency. `appliedAction` is the real outcome; when it is 'trashed' the owning
+// remote_file transitions to the 'trashed' state in the same transaction so the
+// committed truth and the deletion history can never disagree.
+export interface RecordDeletionInput {
+  eventId: string;
+  remoteFileId: string | null;
+  expectedVersionId: string | null;
+  relativePath: string;
+  appliedAction: DeletionAppliedAction;
+  trashPath: string | null;
+  appliedAt: string;
 }
 
 // The durable record of a committed upload (spec 6.5, 21.1): a new immutable
@@ -138,6 +168,15 @@ export interface FilesRepository {
     versionId: string;
     remoteFileId: string;
   };
+  // Idempotency lookup for POST /v1/files/delete (spec 25.2): a replayed event id
+  // returns its recorded outcome rather than acting twice.
+  getDeletionEvent(eventId: string): DeletionEventRow | null;
+  // Records an applied remote deletion; when the action is 'trashed' the owning
+  // remote_file is flipped to 'trashed' in the same transaction (spec 6.4).
+  recordDeletion(input: RecordDeletionInput): void;
+  // Uploads that finished transferring but are not yet committed (spec 25.2 sync
+  // status): the commit backlog surfaced by GET /v1/sync/status.
+  countPendingCommits(): number;
 }
 
 export function createFilesRepository(db: Database): FilesRepository {
@@ -191,6 +230,17 @@ export function createFilesRepository(db: Database): FilesRepository {
       (version_id, remote_file_id, sha256, size, original_relative_path, committed_at, superseded_at)
     VALUES (?, ?, ?, ?, ?, ?, NULL)
   `);
+  const getDeletionEventStmt = db.prepare('SELECT * FROM deletion_event WHERE event_id = ?');
+  const insertDeletionEventStmt = db.prepare(`
+    INSERT INTO deletion_event
+      (event_id, remote_file_id, expected_version_id, relative_path,
+       applied_action, trash_path, applied_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  const trashRemoteFileStmt = db.prepare("UPDATE remote_file SET state = 'trashed' WHERE id = ?");
+  const countPendingCommitsStmt = db.prepare(
+    "SELECT COUNT(*) AS n FROM upload_prepare WHERE state IN ('uploaded', 'verifying', 'committing')",
+  );
 
   return {
     getRemoteFile: (phoneDeviceId, rootId, relativePath) =>
@@ -279,5 +329,28 @@ export function createFilesRepository(db: Database): FilesRepository {
 
       return { versionId, remoteFileId };
     },
+    getDeletionEvent: (eventId) => mapDeletionEvent(getDeletionEventStmt.get(eventId)),
+    recordDeletion: (input) => {
+      db.exec('BEGIN');
+      try {
+        if (input.appliedAction === 'trashed' && input.remoteFileId !== null) {
+          trashRemoteFileStmt.run(input.remoteFileId);
+        }
+        insertDeletionEventStmt.run(
+          input.eventId,
+          input.remoteFileId,
+          input.expectedVersionId,
+          input.relativePath,
+          input.appliedAction,
+          input.trashPath,
+          input.appliedAt,
+        );
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    },
+    countPendingCommits: () => asInt(asRow(countPendingCommitsStmt.get())?.n),
   };
 }

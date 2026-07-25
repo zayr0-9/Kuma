@@ -1,13 +1,19 @@
+import { access, mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { request as httpsRequest } from 'node:https';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import {
   deviceResponseSchema,
   errorResponseSchema,
+  fileDeleteResponseSchema,
   healthResponseSchema,
   pairResponseSchema,
   prepareStatusResponseSchema,
   prepareUploadResponseSchema,
+  syncStatusResponseSchema,
+  type DesktopDeletionPolicy,
 } from '@foldersync/contracts';
 import { HEADER_PROTOCOL, HEADER_REQUEST_ID } from '@foldersync/protocol';
 import { openDatabase, createRepositories, type Database } from '../src/main/db/index.ts';
@@ -39,6 +45,8 @@ let baseUrl: string;
 let pairingWindow: PairingWindow;
 // Mutable so a single test can simulate a nearly-full volume; reset each run.
 let freeSpaceBytes: number;
+// When set, freeSpace rejects — simulates an unplugged/unreadable destination volume.
+let freeSpaceError: Error | null;
 
 // node:https verifies against the server's own self-signed cert supplied as `ca`,
 // which proves the server presents the pinned identity (a wrong cert fails the
@@ -102,12 +110,14 @@ beforeEach(async () => {
   });
 
   freeSpaceBytes = Number.MAX_SAFE_INTEGER;
+  freeSpaceError = null;
   app = createControlServer({
     tls: { key: identity.privateKeyPem, cert: identity.certificatePem },
     identity: { deviceId: identity.deviceId, name: 'Karn-PC' },
     repositories,
     pairingWindow,
-    freeSpace: () => Promise.resolve(freeSpaceBytes),
+    freeSpace: () =>
+      freeSpaceError !== null ? Promise.reject(freeSpaceError) : Promise.resolve(freeSpaceBytes),
     now: () => new Date(CLOCK),
   });
   baseUrl = await app.listen({ port: 0, host: '127.0.0.1' });
@@ -429,6 +439,7 @@ function bindMapping(
   rootId: string,
   destinationRoot: string,
   phoneDeviceId = 'phone-1',
+  desktopDeletionPolicy: DesktopDeletionPolicy = 'preserve_desktop_copy',
 ): void {
   createRepositories(db).roots.create({
     mappingId,
@@ -438,7 +449,7 @@ function bindMapping(
     createdAt: CLOCK,
     phoneRootId: rootId,
     phoneRetentionPolicy: 'keep_on_phone',
-    desktopDeletionPolicy: 'preserve_desktop_copy',
+    desktopDeletionPolicy,
   });
 }
 
@@ -672,5 +683,150 @@ describe('GET /v1/files/prepare/:prepareId', () => {
     const res = await call('GET', '/v1/files/prepare/not-a-uuid', authHeaders());
     expect(res.status).toBe(400);
     expect(errorResponseSchema.parse(res.json()).error.code).toBe('bad_request');
+  });
+});
+
+const DELETE_EVENT = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+
+function deleteHeaders(): Record<string, string> {
+  return { ...authHeaders(), 'content-type': 'application/json' };
+}
+
+function deleteBody(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    eventId: DELETE_EVENT,
+    rootId: ROOT1,
+    fileEntryId: FILE_ENTRY,
+    relativePath: 'Camera/IMG_0001.jpg',
+    expectedRemoteVersionId: A_UUID,
+    cause: 'user_or_external_deletion',
+    ...overrides,
+  });
+}
+
+describe('POST /v1/files/delete', () => {
+  it('trashes the desktop copy under mirror_user_deletions', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'fsync-ep-delete-'));
+    try {
+      bindMapping(MAP1, ROOT1, dir, 'phone-1', 'mirror_user_deletions');
+      const versionId = seedCommittedFile();
+      const filePath = join(dir, 'Camera', 'IMG_0001.jpg');
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, 'bytes');
+
+      const res = await call(
+        'POST',
+        '/v1/files/delete',
+        deleteHeaders(),
+        deleteBody({ expectedRemoteVersionId: versionId }),
+      );
+      expect(res.status).toBe(200);
+      const body = fileDeleteResponseSchema.parse(res.json());
+      expect(body.action).toBe('trashed');
+      expect(body.trashPath).toBe('.foldersync-trash/2026-07-25T120000Z/Camera/IMG_0001.jpg');
+
+      // The file actually moved, and the committed record reflects the trash.
+      await expect(access(filePath)).rejects.toThrow();
+      expect(
+        createRepositories(db).files.getRemoteFile('phone-1', ROOT1, 'Camera/IMG_0001.jpg')?.state,
+      ).toBe('trashed');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects the retention_cleanup cause as bad_request', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera', 'phone-1', 'mirror_user_deletions');
+    const res = await call(
+      'POST',
+      '/v1/files/delete',
+      deleteHeaders(),
+      deleteBody({ cause: 'retention_cleanup' }),
+    );
+    expect(res.status).toBe(400);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('bad_request');
+  });
+
+  it('refuses a stale expected version with remote_version_conflict', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera', 'phone-1', 'mirror_user_deletions');
+    seedCommittedFile(); // current version id is generated, never equal to A_UUID
+    const res = await call(
+      'POST',
+      '/v1/files/delete',
+      deleteHeaders(),
+      deleteBody({ expectedRemoteVersionId: A_UUID }),
+    );
+    expect(res.status).toBe(409);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('remote_version_conflict');
+  });
+
+  it('rejects an unknown root with root_not_mapped', async () => {
+    const res = await call('POST', '/v1/files/delete', deleteHeaders(), deleteBody());
+    expect(res.status).toBe(404);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('root_not_mapped');
+  });
+
+  it('rejects a path addressing a managed directory with invalid_relative_path', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera', 'phone-1', 'mirror_user_deletions');
+    const res = await call(
+      'POST',
+      '/v1/files/delete',
+      deleteHeaders(),
+      deleteBody({ relativePath: '.foldersync-trash/x.jpg' }),
+    );
+    expect(res.status).toBe(400);
+    const body = errorResponseSchema.parse(res.json());
+    expect(body.error.code).toBe('invalid_relative_path');
+    expect(body.error.details?.kind).toBe('reserved_managed_dir');
+  });
+});
+
+describe('GET /v1/sync/status', () => {
+  it('returns an empty status for a device with no bound mappings', async () => {
+    const res = await call('GET', '/v1/sync/status', authHeaders());
+    expect(res.status).toBe(200);
+    expect(syncStatusResponseSchema.parse(res.json())).toEqual({ mappings: [], pendingCommits: 0 });
+  });
+
+  it('reports a bound mapping with its free space', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    freeSpaceBytes = 512_000_000;
+    const res = await call('GET', '/v1/sync/status', authHeaders());
+    expect(syncStatusResponseSchema.parse(res.json()).mappings).toEqual([
+      { rootId: ROOT1, mappingId: MAP1, destinationAvailable: true, freeBytes: 512_000_000 },
+    ]);
+  });
+
+  it('marks a destination unavailable when its volume cannot be read', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    freeSpaceError = new Error('ENOENT');
+    const res = await call('GET', '/v1/sync/status', authHeaders());
+    const body = syncStatusResponseSchema.parse(res.json());
+    expect(body.mappings[0]?.destinationAvailable).toBe(false);
+    expect(body.mappings[0]?.freeBytes).toBeNull();
+  });
+
+  it('counts uploads awaiting commit as pending', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    const repos = createRepositories(db);
+    repos.files.createPrepare({
+      prepareId: OTHER_UUID,
+      phoneDeviceId: 'phone-1',
+      rootId: ROOT1,
+      fileEntryId: FILE_ENTRY,
+      relativePath: 'Camera/IMG_0002.jpg',
+      expectedSize: 10,
+      createdAt: CLOCK,
+      expiresAt: '2026-08-01T00:00:00.000Z',
+    });
+    repos.files.setPrepareState(OTHER_UUID, 'uploaded');
+    const res = await call('GET', '/v1/sync/status', authHeaders());
+    expect(syncStatusResponseSchema.parse(res.json()).pendingCommits).toBe(1);
+  });
+
+  it('omits mappings not yet bound to a phone root', async () => {
+    approveMapping(MAP2, '/backups/pending'); // created with a null phone_root_id
+    const res = await call('GET', '/v1/sync/status', authHeaders());
+    expect(syncStatusResponseSchema.parse(res.json()).mappings).toEqual([]);
   });
 });

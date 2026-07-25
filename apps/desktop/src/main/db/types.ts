@@ -86,7 +86,10 @@ export interface RemoteVersionRow {
   supersededAt: string | null;
 }
 
-export type DeletionAppliedAction = 'trashed' | 'already_applied' | 'no_remote_file';
+// What actually happened to the desktop copy, as stored in deletion_event
+// (spec 6.4). `already_applied` is never stored — it is the wire response for an
+// idempotent replay, resolved from the recorded action at read time.
+export type DeletionAppliedAction = 'trashed' | 'preserved' | 'no_remote_file';
 
 export interface DeletionEventRow {
   eventId: string;

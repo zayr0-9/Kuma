@@ -49,3 +49,10 @@ export function trashPathFor(
 ): string {
   return join(destinationRoot, TRASH_DIR, layoutTimestamp(timestamp), ...relativePath.split('/'));
 }
+
+// The trash location as a destination-root-relative, forward-slash path — what is
+// stored in deletion_event and returned to the phone. The absolute filesystem path
+// (trashPathFor) is used only for the on-disk move and is never sent (spec 30).
+export function relativeTrashPath(timestamp: Date, relativePath: string): string {
+  return `${TRASH_DIR}/${layoutTimestamp(timestamp)}/${relativePath}`;
+}

@@ -69,9 +69,16 @@ export const fileDeleteRequestSchema = z.object({
 });
 export type FileDeleteRequest = z.infer<typeof fileDeleteRequestSchema>;
 
+// The four outcomes of a remote delete (spec 6.4). `trashed` moved the desktop copy
+// into managed trash; `preserved` kept it because the mapping's desktop policy is
+// preserve_desktop_copy (spec 6.1) — the desktop is never a disposable mirror;
+// `no_remote_file` had nothing committed at the path; `already_applied` is the
+// idempotent replay of a prior event id. `trashPath` is relative to the destination
+// root (an absolute server path is never sent to the phone — spec 30) and is null
+// for every non-trashed outcome.
 export const fileDeleteResponseSchema = z.object({
   eventId: uuidSchema,
-  action: z.enum(['trashed', 'already_applied', 'no_remote_file']),
+  action: z.enum(['trashed', 'preserved', 'no_remote_file', 'already_applied']),
   trashPath: z.string().nullable(),
 });
 export type FileDeleteResponse = z.infer<typeof fileDeleteResponseSchema>;

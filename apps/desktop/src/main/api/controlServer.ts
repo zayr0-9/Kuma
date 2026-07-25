@@ -3,6 +3,8 @@ import { statfs } from 'node:fs/promises';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
   deviceResponseSchema,
+  fileDeleteRequestSchema,
+  fileDeleteResponseSchema,
   healthResponseSchema,
   pairRequestSchema,
   pairResponseSchema,
@@ -11,6 +13,7 @@ import {
   prepareUploadResponseSchema,
   rootRegisterRequestSchema,
   rootRegisterResponseSchema,
+  syncStatusResponseSchema,
   uuidSchema,
 } from '@foldersync/contracts';
 import {
@@ -19,10 +22,16 @@ import {
   HEADER_REQUEST_ID,
   PROTOCOL_VERSION,
 } from '@foldersync/protocol';
-import { isTerminalPrepareState, type PairedDeviceRow, type Repositories } from '../db/index.ts';
+import {
+  isTerminalPrepareState,
+  type PairedDeviceRow,
+  type Repositories,
+  type RootMappingRow,
+} from '../db/index.ts';
 import type { PairingWindow } from '../auth/pairingWindow.ts';
 import type { CommitCoordinator } from '../sync/commitCoordinator.ts';
 import { generateBearerToken, hashToken } from '../auth/token.ts';
+import { createDeleteService } from '../sync/deleteService.ts';
 import { findDestinationOverlap } from '../storage/destinationOverlap.ts';
 import { isReservedRelativePath } from '../storage/layout.ts';
 import { resolveDestinationPath } from '../storage/pathSafety.ts';
@@ -99,6 +108,10 @@ export function createControlServer(context: ControlServerContext): FastifyInsta
       return stats.bavail * stats.bsize;
     });
   const { repositories } = context;
+  // The delete mechanics (trash move, version gate, idempotent record) live in an
+  // electron-free service so they are unit-tested without HTTP; the endpoint below
+  // does only auth, path safety and outcome-to-HTTP mapping.
+  const deleteService = createDeleteService({ repositories, now });
 
   const app = Fastify({
     logger: false,
@@ -437,6 +450,105 @@ export function createControlServer(context: ControlServerContext): FastifyInsta
         errorCode: prepare.errorCode,
       }),
     );
+  });
+
+  // POST /v1/files/delete (spec 6.4/25.2/26.2): mirrors a phone-reported user/external
+  // deletion to the desktop copy — moving it to managed trash when the mapping's
+  // policy is mirror_user_deletions, preserving it otherwise (spec 6.1). The
+  // retention_cleanup cause is rejected at the schema (spec 6.2), and the delete is
+  // gated on the version the phone last saw (spec 26.2).
+  app.post(ENDPOINTS.filesDelete, async (request) => {
+    const device = request.pairedDevice;
+    if (device === null) {
+      throw new ApiError('unauthorised', 'Not authenticated', { httpStatus: 401 });
+    }
+    const parsed = fileDeleteRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new ApiError('bad_request', 'Malformed delete request', { httpStatus: 400 });
+    }
+    const body = parsed.data;
+
+    const mapping = repositories.roots.getByPhoneRoot(device.phoneDeviceId, body.rootId);
+    if (mapping === null) {
+      throw new ApiError('root_not_mapped', 'Unknown root', { httpStatus: 404 });
+    }
+
+    const resolved = resolveDestinationPath(mapping.destinationRoot, body.relativePath);
+    if (!resolved.ok) {
+      throw new ApiError('invalid_relative_path', 'Rejected relative path', {
+        httpStatus: 400,
+        details: { kind: resolved.error.kind },
+      });
+    }
+    if (isReservedRelativePath(resolved.relativePath)) {
+      throw new ApiError('invalid_relative_path', 'Rejected relative path', {
+        httpStatus: 400,
+        details: { kind: 'reserved_managed_dir' },
+      });
+    }
+
+    const result = await deleteService.applyDeletion({
+      eventId: body.eventId,
+      phoneDeviceId: device.phoneDeviceId,
+      rootId: body.rootId,
+      destinationRoot: mapping.destinationRoot,
+      relativePath: resolved.relativePath,
+      expectedRemoteVersionId: body.expectedRemoteVersionId,
+      desktopDeletionPolicy: mapping.desktopDeletionPolicy,
+    });
+
+    if (result.outcome === 'version_conflict') {
+      throw new ApiError('remote_version_conflict', 'Expected version is not current', {
+        httpStatus: 409,
+      });
+    }
+
+    return fileDeleteResponseSchema.parse({
+      eventId: body.eventId,
+      action: result.outcome === 'already_applied' ? 'already_applied' : result.action,
+      trashPath: result.trashPath,
+    });
+  });
+
+  // GET /v1/sync/status (spec 25.2): the phone's own mapping health, the commit
+  // backlog and per-destination free space. Scoped to the authenticated device
+  // (spec 25.1); unbound mappings (no phone root yet) are omitted.
+  app.get(ENDPOINTS.syncStatus, async (request) => {
+    const device = request.pairedDevice;
+    if (device === null) {
+      throw new ApiError('unauthorised', 'Not authenticated', { httpStatus: 401 });
+    }
+    const bound = repositories.roots
+      .listByDevice(device.phoneDeviceId)
+      .filter((m): m is RootMappingRow & { phoneRootId: string } => m.phoneRootId !== null);
+
+    const mappings = await Promise.all(
+      bound.map(async (m) => {
+        // A destination volume that is unplugged or unreadable fails statfs — surfaced
+        // as unavailable rather than a 500 (spec 25.2 disk-space state).
+        try {
+          const freeBytes = await freeSpace(m.destinationRoot);
+          return {
+            rootId: m.phoneRootId,
+            mappingId: m.mappingId,
+            destinationAvailable: true,
+            freeBytes,
+          };
+        } catch {
+          return {
+            rootId: m.phoneRootId,
+            mappingId: m.mappingId,
+            destinationAvailable: false,
+            freeBytes: null,
+          };
+        }
+      }),
+    );
+
+    return syncStatusResponseSchema.parse({
+      mappings,
+      pendingCommits: repositories.files.countPendingCommits(),
+    });
   });
 
   // tus upload transport (spec 18.4/18.5): authenticated by the onRequest hook like
