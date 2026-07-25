@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { requireOptionalNativeModule } from 'expo';
 import { getDiscoveredDesktops, startDiscovery, stopDiscovery } from '../src/native/discovery.ts';
 import type { DiscoveredDesktop } from '../src/native/discovery.ts';
 import {
@@ -13,11 +14,19 @@ import { isNativeLinked } from '../src/native/module.ts';
 import { SpikeButton } from '../src/components/SpikeButton.tsx';
 
 // Spike 3 + 4 diagnostic harness (spec 35, 23, 24): DNS-SD discovery and pinned-TLS pairing.
-// In-app camera QR scanning is deferred to the Phase-1 pairing UI — for the spike, paste the
-// desktop's `foldersync://pair?...` string (scan the desktop QR with any QR reader to copy
-// it). Developer diagnostics screen (agent_design §4), not a product surface.
+// The pairing QR is scanned IN-APP via expo-camera (CameraView reads the bytes directly, so
+// the foldersync:// scheme never reaches Android's deep-link router — no collision with the
+// dev-client launcher). Pasting the code stays as a fallback. Developer diagnostics screen
+// (agent_design §4), not a product surface.
 
 const DISCOVERY_POLL_MS = 2000;
+
+// expo-camera is a native module — present only in a dev client built with it. Detect it
+// safely (null on an older build), and lazy-load the scanner so expo-camera's import only
+// runs when the scanner is actually shown (never on a build that lacks the native module,
+// which would crash the screen). Degrades to paste-only otherwise.
+const cameraNativeAvailable = requireOptionalNativeModule('ExpoCamera') !== null;
+const QrScanner = lazy(() => import('../src/components/QrScanner.tsx'));
 
 const REASON_TEXT: Record<Exclude<PairingResult, { ok: true }>['reason'], string> = {
   wrong_scheme: 'Not a FolderSync pairing code.',
@@ -36,6 +45,7 @@ export default function PairingSpikeScreen(): ReactElement {
   const [paired, setPaired] = useState<PairedDevice[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
 
   const refreshPaired = useCallback(async () => {
     if (!linked) return;
@@ -96,18 +106,32 @@ export default function PairingSpikeScreen(): ReactElement {
     });
   }, [run]);
 
-  const onPair = useCallback(() => {
-    void run('Pair', async () => {
-      const result = await startPairingFromQr(qr.trim());
-      if (result.ok) {
-        setMessage(`Paired with ${result.displayName}.`);
-        setQr('');
-        await refreshPaired();
-      } else {
-        setMessage(REASON_TEXT[result.reason]);
-      }
-    });
-  }, [run, qr, refreshPaired]);
+  const doPair = useCallback(
+    (payload: string) => {
+      void run('Pair', async () => {
+        const result = await startPairingFromQr(payload);
+        if (result.ok) {
+          setMessage(`Paired with ${result.displayName}.`);
+          setQr('');
+          await refreshPaired();
+        } else {
+          setMessage(REASON_TEXT[result.reason]);
+        }
+      });
+    },
+    [run, refreshPaired],
+  );
+
+  const onPair = useCallback(() => doPair(qr.trim()), [doPair, qr]);
+
+  const onScanned = useCallback(
+    (data: string) => {
+      setScanning(false);
+      setQr(data);
+      doPair(data);
+    },
+    [doPair],
+  );
 
   const onRemovePaired = useCallback(
     (deviceId: string) => {
@@ -160,23 +184,42 @@ export default function PairingSpikeScreen(): ReactElement {
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Pair (spike 4)</Text>
-        <Text style={styles.muted}>
-          Paste the desktop&apos;s foldersync://pair?… code (scan its QR with any reader to copy).
-        </Text>
-        <TextInput
-          style={styles.input}
-          value={qr}
-          onChangeText={setQr}
-          placeholder="foldersync://pair?v=1&device=…"
-          autoCapitalize="none"
-          autoCorrect={false}
-          multiline
-        />
-        <SpikeButton
-          label="Pair"
-          onPress={onPair}
-          disabled={!linked || busy !== null || qr.trim().length === 0}
-        />
+        {scanning ? (
+          <Suspense fallback={<Text style={styles.muted}>Loading camera…</Text>}>
+            <QrScanner onScanned={onScanned} onCancel={() => setScanning(false)} />
+          </Suspense>
+        ) : (
+          <>
+            <Text style={styles.muted}>
+              {cameraNativeAvailable
+                ? 'Scan the pairing QR on your desktop, or paste the foldersync://pair?… code.'
+                : 'Paste the foldersync://pair?… code. (Rebuild the dev client to scan in-app.)'}
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={qr}
+              onChangeText={setQr}
+              placeholder="foldersync://pair?v=1&device=…"
+              autoCapitalize="none"
+              autoCorrect={false}
+              multiline
+            />
+            <View style={styles.row}>
+              {cameraNativeAvailable && (
+                <SpikeButton
+                  label="Scan QR"
+                  onPress={() => setScanning(true)}
+                  disabled={!linked || busy !== null}
+                />
+              )}
+              <SpikeButton
+                label="Pair"
+                onPress={onPair}
+                disabled={!linked || busy !== null || qr.trim().length === 0}
+              />
+            </View>
+          </>
+        )}
       </View>
 
       <View style={styles.card}>

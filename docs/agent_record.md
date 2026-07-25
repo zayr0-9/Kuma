@@ -69,12 +69,24 @@ Entries are ordered newest-first.
   ADRs `spike-3-mdns-discovery.md` + `spike-4-pinned-tls.md` (Android-half sections).
 - **PR:** branch `spike/3-4-android-discovery-pairing` pushed — open + squash-merge.
 - **Docs updated:** `agent_native.md`, `agent_mobile.md`, spike-3 + spike-4 ADRs, this record.
-- **Follow-ups:** verify the EAS build goes green (first compile of this Kotlin; watch for
-  okhttp classpath / NsdManager / Keystore surprises), install on the Samsung, run
-  `spike-pairing` and record spike-3 + spike-4 pass conditions in their ADRs. To test pairing
-  you need the desktop showing a QR — run the desktop, start pairing, scan its QR with any
-  reader to copy the `foldersync://pair?…` string, paste into the harness. Next Android spike:
-  **5 (tus direct URI upload)**. Then the scan engine + Room DB and the phone's Phase-1 path.
+- **Update (device testing, ~00:55):** the first EAS build **compiled green** (discovery +
+  pairing Kotlin all linked — no okhttp/NsdManager/Keystore issues; the grounding + review
+  paid off). On device, two findings: (1) the app's `foldersync` deep-link scheme
+  (app.config.ts) collides with the pairing QR's `foldersync://` scheme, so scanning with an
+  EXTERNAL reader routes the link into the dev-client launcher and errors — **so I added
+  in-app QR scanning** (`expo-camera ~57.0.3`, `CameraView`; config plugin + camera permission
+  in app.config.ts) which reads the QR bytes directly, bypassing Android deep-linking. (2) To
+  keep a dev client that predates expo-camera from crashing the whole screen (missing native
+  `ExpoCamera`), the scanner is isolated in `src/components/QrScanner.tsx`, **lazy-loaded and
+  gated on `requireOptionalNativeModule('ExpoCamera')`** — degrades to paste-only + discovery
+  still work. Adding expo-camera **needs a fresh EAS build**; a second build was triggered.
+- **Follow-ups:** verify the second EAS build (with expo-camera) goes green, install on the
+  Samsung, then: **discovery** (Start discovery, desktop on same Wi-Fi → it appears);
+  **pairing** (run the desktop, open its pairing window, tap **Scan QR** in the harness →
+  point at the desktop QR → pairs); **reject** (point at a different self-signed cert on the
+  same host:port → `pin_mismatch`). Record spike-3 + spike-4 pass conditions in their ADRs.
+  Next Android spike: **5 (tus direct URI upload)**. Then the scan engine + Room DB and the
+  phone's Phase-1 path.
 
 ### 2026-07-25T19:16+0100 — spike/2-foreground-service — Spike 2: native foreground service (Android half implemented)
 

@@ -63,10 +63,14 @@ On-device checklist (pass: no trust-all path, stable identity across network cha
 - [ ] Change the desktop IP (or move networks) and re-pair with a fresh QR → still works
       (identity = key, not address).
 
-Deferred: in-app camera QR scanning (belongs to the Phase-1 pairing UI — the QR grammar and
-native parse are proven; scanning is UX), multi-device token storage (MVP is one desktop),
-and using the pinned client for the authenticated `x-foldersync-protocol: 1` + `Bearer` calls
-(the scan/upload engines).
+In-app camera QR scanning **was added** (`expo-camera`, `CameraView` in the harness) after
+device testing: the app's `foldersync` deep-link scheme collides with the pairing QR's
+`foldersync://` scheme, so an EXTERNAL scanner routes the link into the dev-client launcher
+and errors — reading the QR in-app bypasses Android's deep-link router entirely. Paste stays
+as a fallback.
+
+Deferred: multi-device token storage (MVP is one desktop), and using the pinned client for the
+authenticated `x-foldersync-protocol: 1` + `Bearer` calls (the scan/upload engines).
 
 ## Decisions (desktop)
 

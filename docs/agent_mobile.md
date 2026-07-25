@@ -52,11 +52,16 @@ boundary), 32.2 (EAS workflow). UI changes also require
   screen; developer diagnostics screens with intentional raw/absolute values per
   agent_design §4 — NOT product surfaces, so the §5 parity checklist does not apply):
   `app/spike-saf.tsx` (SAF), `app/spike-service.tsx` (foreground service), and
-  `app/spike-pairing.tsx` (discovery list + paste-a-`foldersync://pair?…`-code pairing +
-  paired-device list/remove). All use the shared `src/components/SpikeButton.tsx` (48dp
-  touch target). In-app camera QR scanning (`expo-camera`) is deliberately NOT added yet —
-  it belongs to the Phase-1 pairing UI; the spike pastes the QR string, keeping this branch
-  free of a new native dependency + config plugin.
+  `app/spike-pairing.tsx` (discovery list + pairing + paired-device list/remove). All use the
+  shared `src/components/SpikeButton.tsx` (48dp touch target).
+- **`expo-camera` (`~57.0.3`) is used for in-app pairing-QR scanning** (`CameraView` +
+  `useCameraPermissions`; config plugin + camera-permission rationale in `app.config.ts`).
+  This is required, not cosmetic: the app's deep-link `scheme` is `foldersync` (app.config.ts),
+  the SAME scheme as the pairing QR (`foldersync://pair?…`), so scanning with an EXTERNAL
+  reader routes the link into the expo-dev-client launcher (which only loads `http/https`
+  bundles) and errors. `CameraView` reads the QR bytes directly, so the scheme never reaches
+  Android's deep-link router. Pasting the code stays as a fallback. **Adding expo-camera needs
+  a new EAS build** (native dependency).
 - EAS project: `@sigma2/foldersync` (personal account `sigma2` /
   karn97uk@gmail.com), projectId in `app.config.ts` `extra.eas` — `eas init`
   cannot write to a TS config, so keep it updated by hand. Android keystore is
