@@ -60,6 +60,16 @@ export interface DeleteResult {
   deleted: boolean;
 }
 
+/** Foreground-service lifecycle state persisted durably by the service (spec 14.5). */
+export type ServiceState = 'running' | 'paused' | 'stopped';
+
+/** Service status read from the durable cell — correct even if the JS runtime was dead. */
+export interface ServiceStatus {
+  state: ServiceState;
+  ticks: number;
+  updatedAtMs: number;
+}
+
 export interface FolderSyncNativeModule {
   ping(): string;
 
@@ -70,6 +80,13 @@ export interface FolderSyncNativeModule {
   traverseTree(treeUri: string, sampleLimit: number): Promise<TraversalResult>;
   deleteDocument(documentUri: string): Promise<DeleteResult>;
   releasePermission(treeUri: string): Promise<void>;
+
+  // Spike 2 — native foreground service (spec 35, 13.2, 14). startSyncService doubles as
+  // resume; getServiceStatus reads the durable persisted state, not a live handle.
+  startSyncService(): Promise<void>;
+  pauseSyncService(): Promise<void>;
+  stopSyncService(): Promise<void>;
+  getServiceStatus(): Promise<ServiceStatus>;
 }
 
 // null when the running dev client was built before this module existed —

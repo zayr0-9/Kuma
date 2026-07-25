@@ -2,8 +2,11 @@ package expo.modules.foldersync
 
 import android.app.Activity
 import android.content.ContentResolver
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.DocumentsContract
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
@@ -166,12 +169,68 @@ class FolderSyncModule : Module() {
         // Already gone — releasing a stale grant is not an error for the caller.
       }
     }
+
+    // Spike 2 — native foreground service (spec 35, 14). The service owns the work loop;
+    // these are the thin action/observe surface (spec 13.1). `startSyncService` doubles as
+    // resume. `getServiceStatus` reads the durable persisted cell, so it is correct even
+    // after the JS runtime (and this module) were torn down and the service restarted.
+    AsyncFunction("startSyncService") {
+      requestPostNotificationsIfNeeded()
+      sendToService(FolderSyncService.ACTION_START)
+    }
+
+    AsyncFunction("pauseSyncService") {
+      sendToService(FolderSyncService.ACTION_PAUSE)
+    }
+
+    AsyncFunction("stopSyncService") {
+      sendToService(FolderSyncService.ACTION_STOP)
+    }
+
+    AsyncFunction("getServiceStatus") {
+      val prefs = context().getSharedPreferences(FolderSyncService.PREFS, Context.MODE_PRIVATE)
+      mapOf(
+        "state" to prefs.getString(FolderSyncService.KEY_STATE, FolderSyncService.STATE_STOPPED),
+        "ticks" to prefs.getLong(FolderSyncService.KEY_TICKS, 0L).toDouble(),
+        "updatedAtMs" to prefs.getLong(FolderSyncService.KEY_UPDATED, 0L).toDouble(),
+      )
+    }
   }
 
-  private fun resolver(): ContentResolver {
-    val context = appContext.reactContext
-      ?: throw IllegalStateException("No Android context available for the content resolver")
-    return context.contentResolver
+  private fun context(): Context =
+    appContext.reactContext
+      ?: throw IllegalStateException("No Android context available")
+
+  private fun resolver(): ContentResolver = context().contentResolver
+
+  // Deliver an action to the foreground service. startForegroundService is required on
+  // Android 8+ when the app may be in the background; the service calls startForeground
+  // promptly in onStartCommand to satisfy the platform contract (spec 14.3).
+  private fun sendToService(action: String) {
+    val target = context()
+    val intent = Intent(target, FolderSyncService::class.java).setAction(action)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      target.startForegroundService(intent)
+    } else {
+      target.startService(intent)
+    }
+  }
+
+  // Ask for POST_NOTIFICATIONS only when starting the service (spec 14.4). Best-effort: the
+  // service still runs if denied — only the notification is suppressed — so the result is
+  // observed via the system, not awaited here.
+  private fun requestPostNotificationsIfNeeded() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    val activity = appContext.currentActivity ?: return
+    val granted = activity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+      PackageManager.PERMISSION_GRANTED
+    if (granted) return
+    activity.runOnUiThread {
+      activity.requestPermissions(
+        arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+        POST_NOTIF_REQUEST,
+      )
+    }
   }
 
   private fun queryDisplayName(treeUri: Uri, documentId: String): String? {
@@ -294,5 +353,6 @@ class FolderSyncModule : Module() {
   private companion object {
     // Must fit the low 16 bits for startActivityForResult.
     const val OPEN_TREE_REQUEST = 0x5AF1
+    const val POST_NOTIF_REQUEST = 0x5AF2
   }
 }

@@ -37,10 +37,13 @@ fixtures in `packages/test-fixtures` (see [`agent_protocol.md`](agent_protocol.m
 ## Current state
 
 - Gradle wiring: `expo-module.config.json`, library `build.gradle` following the
-  create-expo-module local template, empty library `AndroidManifest.xml` (SAF needs
-  no permissions; service/permission declarations land with spike 2, spec 33.6).
-  TS surface in `src/index.ts` via `requireOptionalNativeModule` (null on stale dev
-  clients).
+  create-expo-module local template. TS surface in `src/index.ts` via
+  `requireOptionalNativeModule` (null on stale dev clients).
+- **Library `AndroidManifest.xml` now declares the foreground service + permissions**
+  (spec 33.6 — the library manifest is their source of truth, merged into the app).
+  Service type is `connectedDevice` (spec 14.2 intended primary); permissions:
+  FOREGROUND_SERVICE(+\_CONNECTED_DEVICE), POST_NOTIFICATIONS, WAKE_LOCK, INTERNET,
+  ACCESS/CHANGE_NETWORK_STATE, CHANGE_WIFI_MULTICAST_STATE.
 - **Spike 1 (SAF persistence + traversal) implemented** — `FolderSyncModule.kt`
   exposes `pickDirectory`, `listPersistedPermissions`, `checkAccess`,
   `traverseTree`, `deleteDocument`, `releasePermission` (plus the original `ping`).
@@ -50,12 +53,25 @@ fixtures in `packages/test-fixtures` (see [`agent_protocol.md`](agent_protocol.m
   [`architecture-decisions/spike-1-saf-persistence-traversal.md`](architecture-decisions/spike-1-saf-persistence-traversal.md).
   Room persistence of roots/file entries is deliberately NOT here yet — it lands
   with the scan engine (spec 16, 17).
+- **Spike 2 (foreground service) implemented** — `FolderSyncService.kt` is a
+  `connectedDevice` foreground service running a simulated per-second tick
+  independent of the JS runtime, with a Pause/Resume/Stop notification, a partial
+  wake lock held only while working (spec 14.6), and state persisted to a
+  `SharedPreferences` cell (the spike's durable store; Room replaces it with the
+  scan engine — the Room+ksp gradle wiring is intentionally its own branch so a
+  failed build isolates one concern). Module surface: `startSyncService` (also
+  resumes), `pauseSyncService`, `stopSyncService`, `getServiceStatus` (reads the
+  persisted cell — correct even after JS death). Design + on-device checklist:
+  [`architecture-decisions/spike-2-foreground-service.md`](architecture-decisions/spike-2-foreground-service.md).
 - **The Kotlin/Gradle side has never been compiled** — no Android toolchain on
-  this machine by design (spec 32.1). The first EAS development build carrying this
-  module is the verification of both the gradle wiring and the SAF Kotlin; expect
-  iteration there, and record the spike-1 pass conditions on the physical device.
-- Spikes 2 (foreground service) and 5 (tus direct URI upload, spec 35) land here
-  next, before any broad implementation.
+  this machine by design (spec 32.1). The first EAS development build carrying these
+  modules verifies the gradle wiring, the SAF Kotlin (spike 1) and the service
+  (spike 2); expect iteration there, and record the spike pass conditions on the
+  physical device.
+- Spike 5 (tus direct URI upload, spec 35) lands here next. Then the real scan
+  engine + Room DB (spec 16, 17) turn spike 1's traversal and spike 2's tick into
+  persisted `file_entry`/queue state, and the service's real work (discovery loop,
+  scan, upload, cleanup — spec 14.1) replaces the tick.
 
 ## Update this file when
 

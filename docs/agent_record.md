@@ -23,6 +23,57 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T19:16+0100 — spike/2-foreground-service — Spike 2: native foreground service (Android half implemented)
+
+- **Done:** the second Android spike. `FolderSyncService.kt` is a `connectedDevice`
+  foreground service (spec 14.2 intended primary type) that runs a simulated per-second
+  tick **independent of the JS runtime**, shows a notification with **Pause / Resume /
+  Stop** actions, holds a partial wake lock only while working (released in `finally` +
+  10-min safety timeout, spec 14.6), and persists its state (`running`/`paused`/`stopped`
+  - tick count + timestamp) to a `SharedPreferences` cell with `commit()` on every change.
+    `START_STICKY` plus reading the cell back on a null-intent restart means **correctness
+    comes from the persisted state, not stickiness** (spec 14.5); `onTaskRemoved` keeps the
+    service alive on swipe-away. The library `AndroidManifest.xml` now declares the service +
+    permissions (spec 33.6). Module surface added: `startSyncService` (also resumes),
+    `pauseSyncService`, `stopSyncService`, `getServiceStatus` (reads the cell — correct even
+    after JS death); POST_NOTIFICATIONS requested best-effort on start (spec 14.4). TS: new
+    `ServiceState`/`ServiceStatus` DTOs; `src/native/service.ts` wrapper; the not-linked
+    guard was extracted to a shared `src/native/module.ts` (`requireNative`/`isNativeLinked`)
+    reused by saf.ts + service.ts (DRY, agent.md §3), and the harness Button collapsed into a
+    shared `src/components/SpikeButton.tsx` (used by both harnesses). New harness
+    `app/spike-service.tsx` (Start/Pause/Resume/Stop + 1 s status polling + the 6-bullet
+    manual-check list + a Samsung battery note). Gates green **as far as headless allows**:
+    workspace typecheck + lint + 249 tests, and a real `expo export --platform android` (both
+    spikes bundle). No new TS unit tests — the surface is Kotlin + device-verified.
+- **Design call (ADR `spike-2-foreground-service.md`):** used `SharedPreferences` for the
+  spike's durable cell, **not Room** — the spike's subject is the service lifecycle, and
+  Room's Gradle/ksp wiring is a distinct risk area that lands with the scan engine, so a
+  failed native build isolates one concern. The cell is a progress marker, not sync state;
+  Room remains the committed source of truth (spec 16/11.5). Framework `Notification` API
+  (version-guarded) over `NotificationCompat` to avoid an androidx-classpath assumption and
+  minimise first-build risk. Status is pull-based; `serviceStatusChanged` (a freshness hint,
+  spec 13.3) is deferred.
+- **Verification boundary:** Kotlin cannot compile here (spec 32.1). A cloud EAS dev build
+  was **triggered this session** (see follow-ups) and a Samsung run is owed to confirm the
+  pass conditions (survives background/swipe-away/process pressure; coherent state after JS
+  death; Android version + Samsung battery behaviour recorded). ADR carries the checklist.
+- **Files:** `modules/foldersync-native/android/src/main/java/expo/modules/foldersync/{FolderSyncService.kt (new),FolderSyncModule.kt}`,
+  `modules/foldersync-native/android/src/main/AndroidManifest.xml`,
+  `modules/foldersync-native/src/index.ts`,
+  `apps/mobile/src/native/{module.ts (new),service.ts (new),saf.ts}`,
+  `apps/mobile/src/components/SpikeButton.tsx` (new),
+  `apps/mobile/app/{spike-service.tsx (new),spike-saf.tsx,_layout.tsx,index.tsx}`,
+  ADR `docs/architecture-decisions/spike-2-foreground-service.md` (new).
+- **PR:** branch `spike/2-foreground-service` pushed — open + squash-merge.
+- **Docs updated:** `agent_native.md` (service + manifest state), `agent_mobile.md`
+  (`module.ts`/`service.ts` + service harness + SpikeButton), new ADR, this record.
+- **Follow-ups:** an EAS development build was started after push — verify it goes green
+  (this is the first compile of the SAF + service Kotlin; expect iteration on gradle/manifest
+  merge), install the APK on the Samsung, run **both** spike harnesses and record spike-1 and
+  spike-2 pass conditions in their ADRs. Next Android spike: **5 (tus direct URI upload)**.
+  Then the scan engine + Room DB (spec 16/17) and the phone's Phase-1 wiring
+  (pair → pick → scan → upload → resume → status).
+
 ### 2026-07-25T18:45+0100 — spike/1-saf-persistence-traversal — Spike 1: SAF persistence + traversal (Android half implemented)
 
 - **Done:** the first Android/native slice — the SAF surface of the Kotlin module

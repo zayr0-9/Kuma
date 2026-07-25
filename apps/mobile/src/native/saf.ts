@@ -1,7 +1,7 @@
 // Typed wrapper around the Kotlin SAF surface (spec 10, 13, 35 spike 1). Screens and
-// components import from here — never from `foldersync-native` directly — so the app has
-// one place that handles "module not linked" (a stale dev-client build, spec 32.2).
-import { FolderSyncNative } from 'foldersync-native';
+// components import from here — never from `foldersync-native` directly. The
+// module-not-linked guard lives in ./module.ts and is shared with the other wrappers.
+import { requireNative } from './module.ts';
 import type {
   AccessCheck,
   DeleteResult,
@@ -9,6 +9,8 @@ import type {
   PickedDirectory,
   TraversalResult,
 } from 'foldersync-native';
+
+export { isNativeLinked, NativeModuleUnavailableError } from './module.ts';
 
 export type {
   AccessCheck,
@@ -22,45 +24,29 @@ export type {
 /** Default cap on how many files a traversal returns to JS (aggregates cover the rest). */
 export const DEFAULT_TRAVERSAL_SAMPLE = 50;
 
-export class NativeModuleUnavailableError extends Error {
-  constructor() {
-    super('rebuild the dev client to include the native module');
-    this.name = 'NativeModuleUnavailableError';
-  }
-}
-
-export function isNativeLinked(): boolean {
-  return FolderSyncNative !== null;
-}
-
-function required(): NonNullable<typeof FolderSyncNative> {
-  if (!FolderSyncNative) throw new NativeModuleUnavailableError();
-  return FolderSyncNative;
-}
-
 export function pickDirectory(): Promise<PickedDirectory> {
-  return required().pickDirectory();
+  return requireNative().pickDirectory();
 }
 
 export function listPersistedPermissions(): Promise<PersistedPermission[]> {
-  return required().listPersistedPermissions();
+  return requireNative().listPersistedPermissions();
 }
 
 export function checkAccess(treeUri: string): Promise<AccessCheck> {
-  return required().checkAccess(treeUri);
+  return requireNative().checkAccess(treeUri);
 }
 
 export function traverseTree(
   treeUri: string,
   sampleLimit: number = DEFAULT_TRAVERSAL_SAMPLE,
 ): Promise<TraversalResult> {
-  return required().traverseTree(treeUri, sampleLimit);
+  return requireNative().traverseTree(treeUri, sampleLimit);
 }
 
 export function deleteDocument(documentUri: string): Promise<DeleteResult> {
-  return required().deleteDocument(documentUri);
+  return requireNative().deleteDocument(documentUri);
 }
 
 export function releasePermission(treeUri: string): Promise<void> {
-  return required().releasePermission(treeUri);
+  return requireNative().releasePermission(treeUri);
 }
