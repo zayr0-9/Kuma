@@ -6,6 +6,8 @@ import {
   errorResponseSchema,
   healthResponseSchema,
   pairResponseSchema,
+  prepareStatusResponseSchema,
+  prepareUploadResponseSchema,
 } from '@foldersync/contracts';
 import { HEADER_PROTOCOL, HEADER_REQUEST_ID } from '@foldersync/protocol';
 import { openDatabase, createRepositories, type Database } from '../src/main/db/index.ts';
@@ -35,6 +37,8 @@ let identity: DesktopIdentity;
 let app: FastifyInstance;
 let baseUrl: string;
 let pairingWindow: PairingWindow;
+// Mutable so a single test can simulate a nearly-full volume; reset each run.
+let freeSpaceBytes: number;
 
 // node:https verifies against the server's own self-signed cert supplied as `ca`,
 // which proves the server presents the pinned identity (a wrong cert fails the
@@ -97,11 +101,13 @@ beforeEach(async () => {
     generateSecret: () => KNOWN_SECRET,
   });
 
+  freeSpaceBytes = Number.MAX_SAFE_INTEGER;
   app = createControlServer({
     tls: { key: identity.privateKeyPem, cert: identity.certificatePem },
     identity: { deviceId: identity.deviceId, name: 'Karn-PC' },
     repositories,
     pairingWindow,
+    freeSpace: () => Promise.resolve(freeSpaceBytes),
     now: () => new Date(CLOCK),
   });
   baseUrl = await app.listen({ port: 0, host: '127.0.0.1' });
@@ -407,6 +413,278 @@ describe('POST /v1/roots/register', () => {
       registerHeaders(),
       JSON.stringify({ requestId: REQ, mappingId: MAP1 }),
     );
+    expect(res.status).toBe(400);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('bad_request');
+  });
+});
+
+const FILE_ENTRY = 'ffffffff-6666-4666-8666-666666666666';
+const VERSION1 = 'dddddddd-7777-4777-8777-777777777777';
+const REMOTE_FILE1 = '00000000-8888-4888-8888-888888888888';
+const OTHER_UUID = '12121212-9999-4999-8999-999999999999';
+const SHA = 'a'.repeat(64);
+
+// A mapping already bound to a phone root (the register step is proven above); the
+// prepare tests start from a device that can address ROOT1.
+function bindMapping(
+  mappingId: string,
+  rootId: string,
+  destinationRoot: string,
+  phoneDeviceId = 'phone-1',
+): void {
+  createRepositories(db).roots.create({
+    mappingId,
+    phoneDeviceId,
+    destinationRoot,
+    displayName: 'Destination',
+    createdAt: CLOCK,
+    phoneRootId: rootId,
+    phoneRetentionPolicy: 'keep_on_phone',
+    desktopDeletionPolicy: 'preserve_desktop_copy',
+  });
+}
+
+function prepareBody(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    requestId: REQ,
+    rootId: ROOT1,
+    fileEntryId: FILE_ENTRY,
+    relativePath: 'Camera/IMG_0001.jpg',
+    size: 1024,
+    modifiedAtMs: 1784981000000,
+    mimeType: 'image/jpeg',
+    knownRemoteVersionId: null,
+    ...overrides,
+  });
+}
+
+// Seeds a committed file at Camera/IMG_0001.jpg with a single version (what the
+// commit slice will write for real).
+function seedCommittedFile(rootId = ROOT1, relativePath = 'Camera/IMG_0001.jpg'): void {
+  const files = createRepositories(db).files;
+  files.insertRemoteFile({
+    id: REMOTE_FILE1,
+    phoneDeviceId: 'phone-1',
+    rootId,
+    fileEntryId: FILE_ENTRY,
+    relativePath,
+    currentVersionId: VERSION1,
+    sha256: SHA,
+    size: 1024,
+    destinationMtimeMs: 1784981000000,
+    destinationIdentity: null,
+    committedAt: CLOCK,
+    state: 'committed',
+  });
+  files.insertRemoteVersion({
+    versionId: VERSION1,
+    remoteFileId: REMOTE_FILE1,
+    sha256: SHA,
+    size: 1024,
+    originalRelativePath: relativePath,
+    committedAt: CLOCK,
+  });
+}
+
+describe('POST /v1/files/prepare', () => {
+  it('reserves an upload for a new file', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    const res = await call('POST', '/v1/files/prepare', registerHeaders(), prepareBody());
+    expect(res.status).toBe(200);
+    const body = prepareUploadResponseSchema.parse(res.json());
+    expect(body.action).toBe('upload');
+    if (body.action !== 'upload') throw new Error('expected upload');
+    expect(body.tusEndpoint).toBe('/v1/uploads');
+
+    const prepare = createRepositories(db).files.getPrepare(body.prepareId);
+    expect(prepare?.state).toBe('prepared');
+    expect(prepare?.relativePath).toBe('Camera/IMG_0001.jpg');
+    expect(prepare?.expectedSize).toBe(1024);
+  });
+
+  it('is idempotent: a second prepare for the same path reuses the reservation', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    const first = prepareUploadResponseSchema.parse(
+      (await call('POST', '/v1/files/prepare', registerHeaders(), prepareBody())).json(),
+    );
+    const second = prepareUploadResponseSchema.parse(
+      (await call('POST', '/v1/files/prepare', registerHeaders(), prepareBody())).json(),
+    );
+    if (first.action !== 'upload' || second.action !== 'upload') throw new Error('expected upload');
+    expect(second.prepareId).toBe(first.prepareId);
+  });
+
+  it('skips when the phone already knows the current committed version', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    seedCommittedFile();
+    const res = await call(
+      'POST',
+      '/v1/files/prepare',
+      registerHeaders(),
+      prepareBody({ knownRemoteVersionId: VERSION1 }),
+    );
+    expect(res.status).toBe(200);
+    const body = prepareUploadResponseSchema.parse(res.json());
+    expect(body).toEqual({
+      action: 'skip',
+      remoteVersionId: VERSION1,
+      sha256: SHA,
+      size: 1024,
+    });
+  });
+
+  it('still uploads when the phone knows nothing (re-paired phone; adopt-in-place at commit)', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    seedCommittedFile();
+    const res = await call(
+      'POST',
+      '/v1/files/prepare',
+      registerHeaders(),
+      prepareBody({ knownRemoteVersionId: null }),
+    );
+    expect(prepareUploadResponseSchema.parse(res.json()).action).toBe('upload');
+  });
+
+  it('rejects an unknown root with root_not_mapped', async () => {
+    const res = await call('POST', '/v1/files/prepare', registerHeaders(), prepareBody());
+    expect(res.status).toBe(404);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('root_not_mapped');
+  });
+
+  it("rejects another device's root as root_not_mapped", async () => {
+    createRepositories(db).devices.insert({
+      phoneDeviceId: 'phone-2',
+      phoneDisplayName: 'Other',
+      tokenHash: hashToken('other-token'),
+      pairedAt: CLOCK,
+    });
+    bindMapping(MAP1, ROOT1, '/backups/other', 'phone-2');
+    const res = await call('POST', '/v1/files/prepare', registerHeaders(), prepareBody());
+    expect(res.status).toBe(404);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('root_not_mapped');
+  });
+
+  it('rejects a path addressing a managed directory with invalid_relative_path', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    const res = await call(
+      'POST',
+      '/v1/files/prepare',
+      registerHeaders(),
+      prepareBody({ relativePath: '.foldersync-staging/x.jpg' }),
+    );
+    expect(res.status).toBe(400);
+    const body = errorResponseSchema.parse(res.json());
+    expect(body.error.code).toBe('invalid_relative_path');
+    expect(body.error.details?.kind).toBe('reserved_managed_dir');
+  });
+
+  it('rejects a traversal path at the contract layer as bad_request', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    const res = await call(
+      'POST',
+      '/v1/files/prepare',
+      registerHeaders(),
+      prepareBody({ relativePath: '../escape.jpg' }),
+    );
+    expect(res.status).toBe(400);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('bad_request');
+  });
+
+  it('rejects insufficient space before reserving', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    freeSpaceBytes = 10;
+    const res = await call('POST', '/v1/files/prepare', registerHeaders(), prepareBody());
+    expect(res.status).toBe(507);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('insufficient_space');
+  });
+});
+
+describe('GET /v1/files/prepare/:prepareId', () => {
+  async function createPrepare(): Promise<string> {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    const body = prepareUploadResponseSchema.parse(
+      (await call('POST', '/v1/files/prepare', registerHeaders(), prepareBody())).json(),
+    );
+    if (body.action !== 'upload') throw new Error('expected upload');
+    return body.prepareId;
+  }
+
+  it('reports the prepared state to the owning device', async () => {
+    const prepareId = await createPrepare();
+    const res = await call('GET', `/v1/files/prepare/${prepareId}`, authHeaders());
+    expect(res.status).toBe(200);
+    expect(prepareStatusResponseSchema.parse(res.json())).toEqual({
+      prepareId,
+      state: 'prepared',
+      remoteVersionId: null,
+      sha256: null,
+      errorCode: null,
+    });
+  });
+
+  it('reports expired once the seven-day lifetime has passed', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    createRepositories(db).files.createPrepare({
+      prepareId: OTHER_UUID,
+      phoneDeviceId: 'phone-1',
+      rootId: ROOT1,
+      fileEntryId: FILE_ENTRY,
+      relativePath: 'Camera/IMG_0001.jpg',
+      expectedSize: 1024,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      expiresAt: '2026-07-08T00:00:00.000Z', // before CLOCK
+    });
+    const res = await call('GET', `/v1/files/prepare/${OTHER_UUID}`, authHeaders());
+    expect(prepareStatusResponseSchema.parse(res.json()).state).toBe('expired');
+    // Persisted, not just computed on read.
+    expect(createRepositories(db).files.getPrepare(OTHER_UUID)?.state).toBe('expired');
+  });
+
+  it('surfaces the committed version id and hash', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    seedCommittedFile();
+    createRepositories(db).files.createPrepare({
+      prepareId: OTHER_UUID,
+      phoneDeviceId: 'phone-1',
+      rootId: ROOT1,
+      fileEntryId: FILE_ENTRY,
+      relativePath: 'Camera/IMG_0001.jpg',
+      expectedSize: 1024,
+      createdAt: CLOCK,
+      expiresAt: '2026-08-01T00:00:00.000Z',
+    });
+    createRepositories(db).files.setPrepareState(OTHER_UUID, 'committed');
+    const res = await call('GET', `/v1/files/prepare/${OTHER_UUID}`, authHeaders());
+    const body = prepareStatusResponseSchema.parse(res.json());
+    expect(body.state).toBe('committed');
+    expect(body.remoteVersionId).toBe(VERSION1);
+    expect(body.sha256).toBe(SHA);
+  });
+
+  it("hides another device's prepare as upload_not_found", async () => {
+    createRepositories(db).devices.insert({
+      phoneDeviceId: 'phone-2',
+      phoneDisplayName: 'Other',
+      tokenHash: hashToken('other-token'),
+      pairedAt: CLOCK,
+    });
+    createRepositories(db).files.createPrepare({
+      prepareId: OTHER_UUID,
+      phoneDeviceId: 'phone-2',
+      rootId: OTHER_UUID,
+      fileEntryId: FILE_ENTRY,
+      relativePath: 'Camera/IMG_0001.jpg',
+      expectedSize: 1024,
+      createdAt: CLOCK,
+      expiresAt: '2026-08-01T00:00:00.000Z',
+    });
+    const res = await call('GET', `/v1/files/prepare/${OTHER_UUID}`, authHeaders());
+    expect(res.status).toBe(404);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('upload_not_found');
+  });
+
+  it('rejects a malformed prepare id with bad_request', async () => {
+    const res = await call('GET', '/v1/files/prepare/not-a-uuid', authHeaders());
     expect(res.status).toBe(400);
     expect(errorResponseSchema.parse(res.json()).error.code).toBe('bad_request');
   });

@@ -23,6 +23,50 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T10:40+0100 — feature/phase1-files-prepare — Files prepare + status + file-sync repositories (spec 25.2/22.2/6.5)
+
+- **Done:** `POST /v1/files/prepare` and `GET /v1/files/prepare/:prepareId` end to
+  end, plus `db/repositories/files.ts` (`FilesRepository`) covering the
+  `upload_prepare` / `remote_file` / `remote_version` trio. Prepare resolves the
+  phone `rootId` to a bound mapping (unknown/foreign → `root_not_mapped`, existence
+  not leaked), runs path safety + the managed-dir guard (failure →
+  `invalid_relative_path` with the kind in `details`; a wire-rule violation such as
+  traversal is caught earlier by the contract as `bad_request`), gates on disk space
+  (`freeSpace` injectable, defaults to `statfs`; bytes + conflict-copy estimate +
+  64 MiB margin → `insufficient_space` 507), is idempotent per path (reuses a live,
+  unexpired, non-terminal reservation instead of orphaning staging), and defaults to
+  a seven-day lifetime (spec 22.3). Skip is returned only when
+  `knownRemoteVersionId` equals the current committed version; null/stale falls
+  through to upload (adopt-in-place dedupes at commit, spec 6.5). Status is
+  owner-only (foreign/unknown → `upload_not_found`), lazily flips a time-expired
+  reservation to `expired` (persisted), and surfaces the committed version id + hash
+  once present. `resolveDestinationPath` now also returns the normalised
+  `relativePath` (the storage key). 20 new tests (14 endpoint, 6 repository).
+  112 desktop / 181 workspace green; lint/typecheck/format clean.
+- **Design notes / deferrals:** the tus fold into the HTTPS server is **deferred to
+  its own slice** — one `@tus/server` `FileStore` has a single directory, but
+  staging must live inside each destination volume for the atomic rename (spec 22),
+  so per-root routing is an unresolved design decision (likely an ADR). Prepare
+  therefore returns the correct, stable `tusEndpoint` (`/v1/uploads`) even though the
+  mount lands next. Worker-thread hash offload (spec 20.2) rides with the
+  commit-verify slice where it is exercised, not here. The skip decision is
+  version-id based (the request carries no content hash), which is the correct
+  idempotency guard; content-level dedup is the commit-time adopt-in-place path that
+  already exists in `sync/commit.ts`. `controlServer.ts` is now ~415 lines — split
+  routes into `api/routes/*` registrars in the next slice that touches it.
+- **Files:** `apps/desktop/src/main/db/repositories/files.ts` (new),
+  `apps/desktop/src/main/db/repositories/index.ts`, `apps/desktop/src/main/db/index.ts`,
+  `apps/desktop/src/main/api/controlServer.ts`,
+  `apps/desktop/src/main/storage/pathSafety.ts`,
+  `apps/desktop/test/{controlServer,db,pathSafety}.test.ts`.
+- **PR:** branch `feature/phase1-files-prepare` pushed — open + squash-merge.
+- **Docs updated:** `agent_desktop.md`, this record.
+- **Follow-ups:** next slice — **fold the tus mount into the control server** (auth
+  via the existing `onRequest` hook, prepare-keyed `namingFunction` validating the
+  metadata `prepareId` against an active owned prepare) + resolve per-root staging
+  (ADR) + worker-thread hashing wired through commit. Then `POST /v1/files/delete`,
+  `GET /v1/sync/status`, rate limiting (spec 24.6), and the desktop-UI slice.
+
 ### 2026-07-25T10:21+0100 — feature/phase1-roots-register — Roots registration + destination-overlap guard (spec 25.2/12.5)
 
 - **Done:** `POST /v1/roots/register` binds a phone root to a desktop-approved

@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { PrepareState } from '@foldersync/contracts';
 import {
   openDatabase,
   resolveDatabasePath,
@@ -310,5 +311,108 @@ describe('roots repository', () => {
     });
     db.prepare('DELETE FROM paired_device WHERE phone_device_id = ?').run('dev-1');
     expect(repos.roots.getByMappingId('map-1')).toBeNull();
+  });
+});
+
+describe('files repository', () => {
+  const FUTURE = '2026-08-01T00:00:00.000Z';
+  const PAST = '2026-07-01T00:00:00.000Z';
+
+  beforeEach(() => {
+    pairDevice(repos);
+  });
+
+  function createPrepare(
+    prepareId: string,
+    overrides: { state?: PrepareState; expiresAt?: string } = {},
+  ): void {
+    repos.files.createPrepare({
+      prepareId,
+      phoneDeviceId: 'dev-1',
+      rootId: 'root-1',
+      fileEntryId: 'file-1',
+      relativePath: 'Camera/IMG_0001.jpg',
+      expectedSize: 1024,
+      createdAt: T0,
+      expiresAt: overrides.expiresAt ?? FUTURE,
+    });
+    if (overrides.state !== undefined) {
+      repos.files.setPrepareState(prepareId, overrides.state);
+    }
+  }
+
+  it('creates and reads back a prepare in the prepared state', () => {
+    createPrepare('prep-1');
+    const prepare = repos.files.getPrepare('prep-1');
+    expect(prepare?.state).toBe('prepared');
+    expect(prepare?.expectedSize).toBe(1024);
+    expect(prepare?.relativePath).toBe('Camera/IMG_0001.jpg');
+  });
+
+  it('reuses the newest active, unexpired prepare for a path', () => {
+    createPrepare('prep-1');
+    const reusable = repos.files.findReusablePrepare('dev-1', 'root-1', 'Camera/IMG_0001.jpg', T1);
+    expect(reusable?.prepareId).toBe('prep-1');
+  });
+
+  it('never reuses a terminal prepare', () => {
+    createPrepare('prep-committed', { state: 'committed' });
+    createPrepare('prep-failed', { state: 'failed' });
+    createPrepare('prep-expired', { state: 'expired' });
+    expect(
+      repos.files.findReusablePrepare('dev-1', 'root-1', 'Camera/IMG_0001.jpg', T1),
+    ).toBeNull();
+  });
+
+  it('never reuses a time-expired prepare', () => {
+    createPrepare('prep-old', { expiresAt: PAST });
+    expect(
+      repos.files.findReusablePrepare('dev-1', 'root-1', 'Camera/IMG_0001.jpg', T1),
+    ).toBeNull();
+  });
+
+  it('rejects a prepare for an unknown device (foreign key)', () => {
+    expect(() =>
+      repos.files.createPrepare({
+        prepareId: 'prep-x',
+        phoneDeviceId: 'ghost',
+        rootId: 'root-1',
+        fileEntryId: 'file-1',
+        relativePath: 'a.jpg',
+        expectedSize: 1,
+        createdAt: T0,
+        expiresAt: FUTURE,
+      }),
+    ).toThrow();
+  });
+
+  it('round-trips a committed remote_file and its version', () => {
+    repos.files.insertRemoteFile({
+      id: 'rf-1',
+      phoneDeviceId: 'dev-1',
+      rootId: 'root-1',
+      fileEntryId: 'file-1',
+      relativePath: 'Camera/IMG_0001.jpg',
+      currentVersionId: 'ver-1',
+      sha256: 'a'.repeat(64),
+      size: 1024,
+      destinationMtimeMs: 1784981000000,
+      destinationIdentity: null,
+      committedAt: T0,
+      state: 'committed',
+    });
+    repos.files.insertRemoteVersion({
+      versionId: 'ver-1',
+      remoteFileId: 'rf-1',
+      sha256: 'a'.repeat(64),
+      size: 1024,
+      originalRelativePath: 'Camera/IMG_0001.jpg',
+      committedAt: T0,
+    });
+
+    const file = repos.files.getRemoteFile('dev-1', 'root-1', 'Camera/IMG_0001.jpg');
+    expect(file?.currentVersionId).toBe('ver-1');
+    expect(file?.state).toBe('committed');
+    expect(repos.files.getRemoteVersion('ver-1')?.sha256).toBe('a'.repeat(64));
   });
 });

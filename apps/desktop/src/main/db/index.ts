@@ -3,6 +3,13 @@
 export { openDatabase, resolveDatabasePath, type Database } from './database.ts';
 export { runMigrations, LATEST_SCHEMA_VERSION, type Migration } from './migrations.ts';
 export { createRepositories, type Repositories } from './repositories/index.ts';
+export {
+  isTerminalPrepareState,
+  type FilesRepository,
+  type CreatePrepareInput,
+  type InsertRemoteFileInput,
+  type InsertRemoteVersionInput,
+} from './repositories/index.ts';
 export type {
   DesktopIdentityRow,
   PairedDeviceRow,

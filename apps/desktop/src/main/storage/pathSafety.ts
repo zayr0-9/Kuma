@@ -20,7 +20,8 @@ export type DestinationPathError =
   | { kind: 'outside_root' };
 
 export type DestinationPathResult =
-  { ok: true; absolutePath: string } | { ok: false; error: DestinationPathError };
+  | { ok: true; absolutePath: string; relativePath: string }
+  | { ok: false; error: DestinationPathError };
 
 function hasControlChars(segment: string): boolean {
   for (const char of segment) {
@@ -71,7 +72,10 @@ export function resolveDestinationPath(
     return { ok: false, error: { kind: 'path_too_long' } };
   }
 
-  return { ok: true, absolutePath };
+  // parsed.path is the canonical `/`-joined relative path (segments.join('/')); it
+  // is the key callers store in remote_file / upload_prepare so prepare, upload and
+  // commit all agree on one normalised form.
+  return { ok: true, absolutePath, relativePath: parsed.path };
 }
 
 // Symlink-escape check (spec 22.1 rules 7–8): the deepest existing ancestor of the

@@ -124,17 +124,42 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   precision is a follow-up). The UI-approval step that creates the mapping row with
   its destination is simulated in tests via `roots.create`; the real IPC lands with
   the desktop-UI slice. 17 new tests (10 overlap unit, 7 endpoint).
+- **Files prepare built** (spec 25.2/22.2/6.5): `POST /v1/files/prepare` reserves an
+  upload or tells the phone to skip. The phone references a phone `rootId`; the
+  destination is resolved server-side from the bound mapping via
+  `roots.getByPhoneRoot` (unknown/foreign → `root_not_mapped`), the relative path
+  passes `resolveDestinationPath` + the managed-dir guard (any failure →
+  `invalid_relative_path`, the kind in `details`, never the resolved path; a
+  wire-rule violation such as traversal is caught earlier by the contract as
+  `bad_request`), and a disk-space gate (`freeSpace` injectable, defaults to
+  `statfs`; file bytes + a conflict-copy estimate + margin) returns
+  `insufficient_space`. Skip is returned only when the phone's
+  `knownRemoteVersionId` equals the current committed version (idempotent
+  re-prepare); a null/stale id falls through to upload, and adopt-in-place dedupes
+  at commit time (spec 6.5). Prepares are idempotent per path — a live reservation
+  is reused rather than orphaning staging — and default to a seven-day lifetime
+  (spec 22.3). `GET /v1/files/prepare/:prepareId` reports status for the owning
+  device only (foreign/unknown → `upload_not_found`), lazily flips a time-expired
+  reservation to `expired`, and surfaces the committed version id + hash once
+  present. New `db/repositories/files.ts` (`FilesRepository`) covers the
+  `upload_prepare` / `remote_file` / `remote_version` trio; `resolveDestinationPath`
+  now also returns the normalised `relativePath` used as the storage key. 20 new
+  tests (14 endpoint, 6 repository).
 - Not yet built: failed-auth / pairing brute-force **rate limiting** (spec 24.6,
   deferred here — 256-bit secret + hashed tokens make it non-blocking for the
   slice); the desktop-side mapping-approval IPC (destination picker →
-  `roots.create` with an overlap check at creation time too); `POST /v1/files/prepare` +
-  status + `POST /v1/files/delete`; `GET /v1/sync/status`; folding the tus mount
-  (`uploadServer.ts`) into the HTTPS control server (with auth and a prepare-keyed
-  `namingFunction`); hash worker-thread offload; safeStorage key wrapping; the QR
-  **image** rendering + renderer/IPC (only the payload/secret plumbing exists). The
-  DB summary row for `desktop_identity` is written when identity is wired into the
-  main process (identity currently persists to files only via `identityStore.ts`);
-  `GET /v1/device` reads the in-memory identity summary.
+  `roots.create` with an overlap check at creation time too); `POST /v1/files/delete`;
+  `GET /v1/sync/status`; **folding the tus mount** (`uploadServer.ts`) into the
+  HTTPS control server (with auth and a prepare-keyed `namingFunction`) — deferred
+  to its own slice because it has an unresolved design question: one `@tus/server`
+  `FileStore` has a single directory, but staging must live inside each destination
+  volume for the atomic rename (spec 22), so per-root routing needs deciding (likely
+  an ADR); **hash worker-thread offload** (spec 20.2) rides with the commit-verify
+  slice where it is actually exercised; safeStorage key wrapping; the QR **image**
+  rendering + renderer/IPC (only the payload/secret plumbing exists). The DB summary
+  row for `desktop_identity` is written when identity is wired into the main process
+  (identity currently persists to files only via `identityStore.ts`); `GET /v1/device`
+  reads the in-memory identity summary.
 
 ## Update this file when
 
