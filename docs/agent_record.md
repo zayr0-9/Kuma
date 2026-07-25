@@ -23,6 +23,45 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T14:42+0100 — feature/phase1-desktop-ui-last-synced — Last-synced on the destination card (spec 25.2, design §5)
+
+- **Done:** completes the §5 destination-card fields. A bound destination now shows
+  **"Last backed up {relative}"** (e.g. "Last backed up 2 minutes ago") or **"No backups
+  yet"** before its first commit. New repo read
+  `files.getLastCommittedAt(phoneDeviceId, rootId)` — `MAX(remote_file.committed_at)`,
+  ISO-UTC so MAX compares lexicographically; kept even for trashed files so it reflects
+  the last time anything was written here; null before any commit. It feeds a new
+  `lastSyncedAt` field on the existing `status:get` DTO — **no new IPC channel**, so the
+  preload is unchanged. Rendered with a new pure `formatRelativeTime(iso, nowMs)` in
+  `src/shared/format.ts` (`Date.now()` injected for testability; future/clock-skew and
+  just-now both read "just now"; relative per §4, absolute stays in history/diagnostics).
+  5 new tests (statusController: last-synced reflects the most recent commit, null before
+  any; formatRelativeTime matrix incl. singular/plural, days, future, unparseable). 175
+  desktop / 247 workspace green; lint/typecheck/format clean. **Verified by a real `pnpm
+build`**.
+- **Design call:** "last synced" is sourced from `remote_file.committed_at` (the current
+  truth per path, retained through trash) rather than joining `remote_version` history —
+  simpler, one table, and still honest about the last write. Wording is **"Last backed
+  up"** (not "synced") to match the product's phone→desktop framing; recorded as the
+  canonical rendering of the §5 field in agent_design §7.
+- **Files:** `apps/desktop/src/main/db/repositories/files.ts` (`getLastCommittedAt`),
+  `apps/desktop/src/shared/{status.ts,format.ts}` (`lastSyncedAt` field,
+  `formatRelativeTime`), `apps/desktop/src/main/ui/statusController.ts` (populate it),
+  `apps/desktop/src/renderer/src/DestinationsPanel.tsx` (render it),
+  `apps/desktop/test/{statusController,format}.test.ts`.
+- **PR:** branch `feature/phase1-desktop-ui-last-synced` pushed — open + squash-merge.
+- **Docs updated:** `agent_design.md` §7 (last-synced wording), `agent_desktop.md`
+  (last-synced state, trimmed "not yet built"), this record.
+- **Follow-ups:** with the destination card complete, the next natural surface is either
+  live **pairing-completion feedback** (main→renderer push to retire the manual Refresh,
+  plus a **manual-code** pairing fallback) or the **history/events** view (spec §5 event
+  rows — needs an `event_log` repo + IPC). Also still open: destination **rename/remove**
+  and phone-folder policy editing; safeStorage key wrapping; `Upload-Length` vs
+  `expected_size`; periodic staging GC; a hash-worker pool; the manual packaged-app
+  launch (all `status:*` / `destinations:*` / `devices:*` / `pairing:*` round trips +
+  worker via a real commit). Split `controlServer.ts` into `api/routes/*` in the next
+  slice that touches it.
+
 ### 2026-07-25T14:35+0100 — feature/phase1-desktop-ui-sync-status — Desktop sync-status on the destination card (spec 25.2, design §5)
 
 - **Done:** the destination card now shows live status. A new electron-free

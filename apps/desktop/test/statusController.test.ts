@@ -74,6 +74,7 @@ describe('statusController', () => {
       phoneRetentionPolicy: 'delete_after_verified_backup',
       desktopDeletionPolicy: 'mirror_user_deletions',
       pendingCommits: 0,
+      lastSyncedAt: null,
     });
     expect(byId.get('m-unbound')).toEqual({
       mappingId: 'm-unbound',
@@ -82,6 +83,7 @@ describe('statusController', () => {
       phoneRetentionPolicy: null,
       desktopDeletionPolicy: null,
       pendingCommits: 0,
+      lastSyncedAt: null,
     });
     expect(view.pendingCommits).toBe(0);
   });
@@ -107,6 +109,7 @@ describe('statusController', () => {
       phoneRetentionPolicy: null,
       desktopDeletionPolicy: null,
       pendingCommits: 0,
+      lastSyncedAt: null,
     });
   });
 
@@ -154,5 +157,51 @@ describe('statusController', () => {
     const view = await controller.getStatus();
     expect(view.destinations[0]?.pendingCommits).toBe(2);
     expect(view.pendingCommits).toBe(2);
+  });
+
+  it('reports the most recent commit as last synced, null before any commit', async () => {
+    repositories.roots.create({
+      mappingId: 'm-bound',
+      phoneDeviceId: DEVICE,
+      destinationRoot: '/backups/Camera',
+      displayName: 'Camera',
+      createdAt: CLOCK,
+    });
+    repositories.roots.bind({
+      mappingId: 'm-bound',
+      phoneRootId: 'root-1',
+      phoneRetentionPolicy: 'keep_on_phone',
+      desktopDeletionPolicy: 'preserve_desktop_copy',
+      updatedAt: CLOCK,
+    });
+    const controller = createStatusController({
+      repositories,
+      freeSpace: () => Promise.resolve(1_000),
+    });
+
+    expect((await controller.getStatus()).destinations[0]?.lastSyncedAt).toBeNull();
+
+    repositories.files.recordCommittedVersion({
+      phoneDeviceId: DEVICE,
+      rootId: 'root-1',
+      fileEntryId: 'fe-old',
+      relativePath: 'old.bin',
+      sha256: 'a'.repeat(64),
+      size: 1,
+      committedAt: '2026-07-20T00:00:00.000Z',
+    });
+    repositories.files.recordCommittedVersion({
+      phoneDeviceId: DEVICE,
+      rootId: 'root-1',
+      fileEntryId: 'fe-new',
+      relativePath: 'new.bin',
+      sha256: 'b'.repeat(64),
+      size: 1,
+      committedAt: '2026-07-24T09:30:00.000Z',
+    });
+
+    expect((await controller.getStatus()).destinations[0]?.lastSyncedAt).toBe(
+      '2026-07-24T09:30:00.000Z',
+    );
   });
 });

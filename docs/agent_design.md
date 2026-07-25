@@ -126,8 +126,12 @@ the same PR.
   drive) shows **"Destination unavailable"** in place of the free-space line — a calm
   "Needs attention" state (§2), never implying the files are gone (§3). Byte sizes use
   `formatBytes` (binary steps, one decimal below 100 of a unit; an unreadable volume
-  renders as **"—"**, never "0"). The remaining §5 card field still to land is **last
-  synced** (needs commit timestamps surfaced per destination).
+  renders as **"—"**, never "0"). A bound destination also shows its **last synced**
+  time — **"Last backed up {relative}"** (e.g. "Last backed up 2 minutes ago") via
+  `formatRelativeTime`, or **"No backups yet"** before the first commit, completing the
+  §5 destination-card fields. Per §4 the card uses a **relative** timestamp; absolute
+  times stay in history/diagnostics. ("Last backed up" is the canonical rendering of the
+  §5 "last synced" field — this product backs up phone→desktop.)
 - Colour tokens / `packages/ui`: still deferred (spec 10.1 — land shared presentational
   pieces when a second surface needs them). The pairing panel uses semantic HTML and
   structural layout only; no hard-coded colours yet.

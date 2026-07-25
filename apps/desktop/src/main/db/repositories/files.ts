@@ -181,6 +181,12 @@ export interface FilesRepository {
   // the desktop status card (agent_design §5). Prepares only exist for bound roots, so
   // this is well defined per destination.
   countPendingCommitsForRoot(phoneDeviceId: string, rootId: string): number;
+  // The most recent commit time across a bound root's files — the "last synced" field
+  // on the desktop status card (agent_design §5). Reads remote_file.committed_at (kept
+  // even for trashed files, so it reflects the last time anything was backed up here);
+  // null when the destination has never committed. ISO-8601 UTC, so MAX compares
+  // lexicographically.
+  getLastCommittedAt(phoneDeviceId: string, rootId: string): string | null;
 }
 
 export function createFilesRepository(db: Database): FilesRepository {
@@ -249,6 +255,9 @@ export function createFilesRepository(db: Database): FilesRepository {
     `SELECT COUNT(*) AS n FROM upload_prepare
      WHERE phone_device_id = ? AND root_id = ?
        AND state IN ('uploaded', 'verifying', 'committing')`,
+  );
+  const lastCommittedAtStmt = db.prepare(
+    'SELECT MAX(committed_at) AS t FROM remote_file WHERE phone_device_id = ? AND root_id = ?',
   );
 
   return {
@@ -363,5 +372,7 @@ export function createFilesRepository(db: Database): FilesRepository {
     countPendingCommits: () => asInt(asRow(countPendingCommitsStmt.get())?.n),
     countPendingCommitsForRoot: (phoneDeviceId, rootId) =>
       asInt(asRow(countPendingCommitsForRootStmt.get(phoneDeviceId, rootId))?.n),
+    getLastCommittedAt: (phoneDeviceId, rootId) =>
+      asTextOrNull(asRow(lastCommittedAtStmt.get(phoneDeviceId, rootId))?.t),
   };
 }

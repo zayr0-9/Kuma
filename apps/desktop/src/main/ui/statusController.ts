@@ -36,6 +36,8 @@ export function createStatusController(deps: StatusControllerDeps): StatusContro
             destinationAvailable = false;
           }
 
+          // Pending backlog and last-synced time are per bound root; an unbound
+          // destination has neither (no root to key on).
           const pendingCommits =
             mapping.phoneRootId === null
               ? 0
@@ -43,6 +45,10 @@ export function createStatusController(deps: StatusControllerDeps): StatusContro
                   mapping.phoneDeviceId,
                   mapping.phoneRootId,
                 );
+          const lastSyncedAt =
+            mapping.phoneRootId === null
+              ? null
+              : repositories.files.getLastCommittedAt(mapping.phoneDeviceId, mapping.phoneRootId);
 
           return {
             mappingId: mapping.mappingId,
@@ -51,6 +57,7 @@ export function createStatusController(deps: StatusControllerDeps): StatusContro
             phoneRetentionPolicy: mapping.phoneRetentionPolicy,
             desktopDeletionPolicy: mapping.desktopDeletionPolicy,
             pendingCommits,
+            lastSyncedAt,
           };
         }),
       );

@@ -3,7 +3,7 @@ import type { ReactElement } from 'react';
 import type { DesktopDeletionPolicy, PhoneRetentionPolicy } from '@foldersync/contracts';
 import type { DestinationSummary, DeviceSummary } from '../../shared/destinations.ts';
 import type { DestinationStatus } from '../../shared/status.ts';
-import { formatBytes } from '../../shared/format.ts';
+import { formatBytes, formatRelativeTime } from '../../shared/format.ts';
 
 // The desktop destinations surface (spec 25.2, agent_design §5): each paired phone and
 // the folders on this desktop it backs up into. A destination is created here (native
@@ -119,6 +119,13 @@ export function DestinationsPanel(): ReactElement {
                         )}
                         {d.bound && status?.desktopDeletionPolicy != null && (
                           <div>{DESKTOP_DELETION_LABELS[status.desktopDeletionPolicy]}</div>
+                        )}
+                        {d.bound && status !== undefined && (
+                          <div>
+                            {status.lastSyncedAt === null
+                              ? 'No backups yet'
+                              : `Last backed up ${formatRelativeTime(status.lastSyncedAt, Date.now())}`}
+                          </div>
                         )}
                       </li>
                     );
