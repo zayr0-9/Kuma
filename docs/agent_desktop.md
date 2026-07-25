@@ -29,8 +29,11 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   prepares live ~7 days and are renewable.
 - Tokens stored hashed only; secrets redacted from logs; unexpected certificate change
   is a hard failure.
-- `node:sqlite` is the database choice **pending the packaged-app spike** (spec 21.2) —
-  record an ADR if it falls through.
+- `node:sqlite` is the database choice — verified unflagged in Electron 43's Node
+  24 and accepted (`architecture-decisions/desktop-database-node-sqlite.md`). The
+  packaged-app + Ubuntu/Windows verification is still outstanding; do not switch
+  databases without superseding that ADR. The DB never lives inside a destination
+  root (spec 22) — it opens in `app.getPath('userData')`.
 
 ## Current state
 
@@ -74,9 +77,21 @@ SQLite metadata, DNS-SD advertisement, TLS identity/pairing, destination managem
   and blob worker-src (.env.development). electron stays external in the preload
   build (externalizeDepsPlugin + explicit external) — bundling it pulls the npm
   installer shim, which dies in the sandbox.
-- Not yet built: control API endpoints (auth, prepare, delete), SQLite metadata,
-  pairing endpoint/window. Hash worker-thread offload lands with the control
-  API wiring; safeStorage key wrapping lands with main-process wiring.
+- **Database layer built** (`src/main/db/`, spec 21): `openDatabase(path)` applies
+  WAL/`foreign_keys`/`busy_timeout` and runs `user_version`-keyed migrations;
+  `schema.ts` holds the v1 DDL for all eight spec-21.1 tables (STRICT); `row.ts`
+  narrows `node:sqlite`'s `unknown` column values. Repositories exist for
+  `desktop_identity`, `paired_device`, `root_mapping` (identity/devices/roots) via
+  `createRepositories(db)`; the file-sync trio (`remote_file`, `upload_prepare`,
+  `remote_version`), `deletion_event` and `event_log` have tables in v1 but their
+  repositories land with the slices that exercise them (prepare/upload, deletion).
+  17 tests in `test/db.test.ts`.
+- Not yet built: control API endpoints (auth, prepare, delete), the HTTPS control
+  server on the spike-4 identity, pairing endpoint/window. Hash worker-thread
+  offload lands with the control API wiring; safeStorage key wrapping lands with
+  main-process wiring. The DB summary row for `desktop_identity` is written when
+  identity is wired into the main process (currently identity persists to files
+  only via `identityStore.ts`).
 
 ## Update this file when
 

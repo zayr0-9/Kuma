@@ -23,6 +23,64 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-25T09:36+0100 — feature/phase1-desktop-db — Desktop database layer (spec 21)
+
+- **Done:** desktop metadata database built on `node:sqlite`. §21.2 gate cleared —
+  `node:sqlite` roundtrips in Electron 43's embedded Node 24.18.0 **with no flag**
+  (`ELECTRON_RUN_AS_NODE=1`), and is unflagged in the local Node 26 that runs
+  vitest, so tests exercise the real module. `src/main/db/`: `database.ts`
+  (`openDatabase` → WAL + `foreign_keys` + `busy_timeout`, runs migrations; pure of
+  `electron`, path injected via `resolveDatabasePath(userData)`), `migrations.ts`
+  (`user_version`-keyed, transactional, append-only, idempotent), `schema.ts` (v1
+  DDL, all 8 spec-21.1 tables, STRICT), `row.ts` (narrows `node:sqlite`'s `unknown`
+  columns — also satisfies `no-base-to-string`), `types.ts` (row types reusing
+  contract enums), and repositories for `desktop_identity`/`paired_device`/
+  `root_mapping` via `createRepositories(db)`. 17 new tests (53 desktop, 122
+  workspace). Lint/typecheck/format/test all green.
+- **Design notes:** all 8 tables created in migration v1 (schema is one design
+  unit); repos for the file-sync trio + deletion + event_log land with their
+  feature slices, not speculatively. `root_mapping` models the spec-25.2 flow:
+  desktop UI creates a pending mapping (null `phone_root_id`/policies), the phone
+  binds via register. Token hashes only; revoked pairings excluded from auth
+  lookup but retained. FK `ON DELETE CASCADE` from `paired_device`.
+- **Files:** `apps/desktop/src/main/db/**`, `apps/desktop/test/db.test.ts`, ADR
+  `architecture-decisions/desktop-database-node-sqlite.md`.
+- **PR:** branch pushed — **first PR under the new protected-main workflow**
+  (squash-merge in web UI; `gh` is work-only so no CLI PR).
+- **Docs updated:** `agent_desktop.md` (current state + node:sqlite rule), new ADR,
+  this record.
+- **Follow-ups:** next desktop slices (each its own branch/PR): (1) HTTPS control
+  server on the spike-4 identity + protocol/auth middleware + `/v1/health`,
+  `/v1/device`; (2) pairing window/secret + `POST /v1/pair` + token issuance;
+  (3) `POST /v1/roots/register` with destination-overlap guard (uses
+  `roots.listDestinations()`); (4) `POST /v1/files/prepare` + status + the
+  file-sync repos + tus `namingFunction`; (5) worker-thread hashing. The
+  packaged-app and Ubuntu/Windows node:sqlite verification is still owed per the ADR.
+
+### 2026-07-25T09:18+0100 — main (setup) — GitHub remote created via personal SSH alias
+
+- **Done:** `origin` set to `git@github-personal:zayr0-9/Kuma.git` and `main`
+  pushed (tracking `origin/main`). Root-caused and avoided the identity trap:
+  `~/.ssh/config` pins `Host github.com` → `id_ed25519` (work key,
+  `IdentitiesOnly yes`) which authenticates as **ksingh-max**; the personal alias
+  is `Host github-personal` → `id_ed25519_personal` → **zayr0-9** (both verified
+  live with `ssh -T`). GitHub's copy-paste URL (`git@github.com:zayr0-9/Kuma.git`)
+  would have pushed with the work key — rewrote the host to `github-personal`.
+  `gh` CLI is authed **only** as work ksingh-max, so repo settings
+  (squash-merge-only + `protect-main` ruleset) are being done by Karan in the web
+  UI rather than via a work-token API call.
+- **Files:** none in-repo (git remote config + auto-memory only).
+- **PR:** none (setup; no code change).
+- **Docs updated:** this record; auto-memory `github-push-ssh-aliases-kuma` added,
+  `personal-vs-work-github-identity` refreshed.
+- **Follow-ups:** (1) CI's first-ever run should have triggered on the `main` push
+  (`on: push: branches: [main]`) — check `github.com/zayr0-9/Kuma/actions`; it may
+  be red on first run (`--frozen-lockfile` / `format:check`) — fix before gating.
+  (2) After first green run, add `checks` as a required status check in the
+  ruleset. (3) Web-UI settings: disable merge-commit + rebase-merge, enable
+  auto-delete head branches, ruleset "Require a PR" with **0** required approvals
+  (solo — 1 would lock out self-merge), block force pushes.
+
 ### 2026-07-25T09:10+0100 — fix/desktop-renderer-blank — Both apps verified live on real targets
 
 - **Done:** desktop blank-window bug fixed — two causes: (1) CSP `script-src
