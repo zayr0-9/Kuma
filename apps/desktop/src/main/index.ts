@@ -6,6 +6,10 @@ import { registerPairingIpc } from './ui/ipc.ts';
 import { registerDestinationsIpc } from './ui/destinationsIpc.ts';
 import { registerStatusIpc } from './ui/statusIpc.ts';
 
+// A fixed high port in the IANA dynamic/private range (49152-65535) so the control server
+// lands at the same address every launch. Only used when FOLDERSYNC_PORT is unset.
+const DEFAULT_CONTROL_PORT = 51384;
+
 // Electron security defaults are spec 20.1 requirements, not preferences:
 // isolated, sandboxed renderer with no Node integration and no remote content.
 function createWindow(): void {
@@ -54,6 +58,12 @@ void app.whenReady().then(async () => {
     backend = await startBackend({
       userDataDir: app.getPath('userData'),
       displayName: hostname(),
+      // A STABLE control-server port so the phone's stored pairing target stays valid
+      // across desktop restarts (an OS-assigned port 0 moves every launch, stranding a
+      // paired phone at a dead port). Overridable via FOLDERSYNC_PORT; the desktop
+      // Settings port (spec 5.6) supersedes this later. Discovery-based reconnection
+      // (spec 24.6) — matching the paired desktop by device id — is the eventual robust path.
+      port: Number(process.env.FOLDERSYNC_PORT) || DEFAULT_CONTROL_PORT,
     });
     const disposePairing = registerPairingIpc(backend);
     const disposeDestinations = registerDestinationsIpc(backend);

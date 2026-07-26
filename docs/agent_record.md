@@ -23,6 +23,43 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-26T10:20+0100 — fix/desktop-stable-port + fix/mobile-tus-transport — Spike 5 PASSED on device; three fixes
+
+- **Done:** spike 5 is **device-verified** on the Samsung SM-S948B — a file uploads to
+  `committed`, and **resume after a mid-transfer Wi-Fi toggle works** (the spike-5 pass
+  condition). All four gating Android spikes (1 SAF, 2 service, 3 discovery, 4 pairing) + the
+  resumable tus upload now pass on-device. The device run surfaced three desktop bugs the Node
+  golden tests missed (Android `HttpsURLConnection` is much stricter), all fixed desktop-side —
+  **no app rebuild was needed for the final fix**:
+  1. **Stable port** — `startBackend` bound `port: 0` (OS-assigned), so each desktop restart
+     stranded the paired phone at a dead port. Now a fixed `FOLDERSYNC_PORT` (default 51384).
+  2. **Catch-all content-type parser** — tus-java-client's creation POST is
+     `application/x-www-form-urlencoded`; Fastify 415'd it before the handler. `'*'` parser
+     now bypasses body parsing for all tus requests (JSON routes keep their parser).
+  3. **Relative tus Location** — `@tus/server` emitted an absolute `http://host/...` Location
+     (blind to the pinned TLS), so the phone sent HEAD/PATCH as **plaintext to the HTTPS port**
+     → `unexpected end of stream on com.android.okhttp`, zero server-side traffic. The desktop
+     test masked it (re-attached the https base). Fixed with `relativeLocation: true`.
+     Phone-side (`fix/mobile-tus-transport`, built into EAS `05b6d241`): the upload status now
+     surfaces the **real transport exception** instead of a bare `network` (this is what made
+     bugs 2+3 diagnosable on device), plus `Connection: close` + keep-alive off on tus requests.
+- **How it was diagnosed:** added temporary `[TUSDEBUG]` logging to the desktop tus route +
+  error handler (reloads from source, no rebuild) → narrowed create-415 → then a raw-TLS
+  reproduction test captured the exact create response and revealed the `http://` Location.
+  Each fix landed with a regression test (415 content-type; relative-Location assertion). The
+  temporary logging has been **stripped**.
+- **Gates:** desktop typecheck + lint + 181 tests (2 new regression tests) green; prettier last.
+- **Branches / PRs:** `fix/desktop-stable-port` (stable port + content-type + relativeLocation;
+  the intermediate DEBUG commits collapse on squash-merge — final tree is clean) and
+  `fix/mobile-tus-transport` (transport diagnostics + Connection:close) — both off main, no file
+  overlap. Open + squash-merge both.
+- **Docs updated:** `spike-5-tus-upload.md` (marked PASSED + the three bugs), this record.
+- **Follow-ups:** the real engine — **Room DB (spec 16) + scan engine (17) + upload engine (18)
+  - phone UI (5)**. Fold `UploadManager` into it, and kill the spike-screen friction (a bound
+    destination drops off `roots/available` with no phone-side rootId persistence and no desktop
+    unbind — so each test attempt currently burns a fresh desktop folder). Room-backed
+    `sync_root` + a "my roots" list + a desktop unbind close that. Its own branch (Room KSP risk).
+
 ### 2026-07-26T01:40+0100 — spike/5-tus-upload-roots-binding — Spike 5: tus direct URI upload + roots binding (implemented)
 
 - **Done:** the phone can pick a folder, **bind** it to a desktop destination, and **upload**

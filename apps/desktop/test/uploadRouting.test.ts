@@ -169,6 +169,9 @@ describe('tus upload transport (folded into the control server)', () => {
     expect(create.status).toBe(201);
     const location = create.headers.location;
     if (typeof location !== 'string') throw new Error('tus creation returned no location');
+    // The Location must be relative so the phone resolves it against its https base — an
+    // absolute http:// URL would send follow-up PATCH/HEAD as plaintext to the TLS-only port.
+    expect(location.startsWith('/v1/uploads/')).toBe(true);
     const uploadPath = new URL(location, baseUrl).pathname;
     expect(uploadPath).toBe(`/v1/uploads/${PREPARE_ID}`);
     // creation flipped the prepare to uploading
@@ -222,6 +225,22 @@ describe('tus upload transport (folded into the control server)', () => {
     await expect(readFile(join(destinationRoot, 'Camera', 'VID_0001.mp4'))).resolves.toEqual(
       payload,
     );
+  });
+
+  it('accepts a creation POST whose content-type has no parser (Android client sends one)', async () => {
+    // Regression: tus-java-client's creation POST carries a content-type Fastify has no
+    // parser for, which failed with 415 before the catch-all content-type parser (spec 18.4).
+    seedPrepare({ size: 10 });
+    const res = await tusCall(
+      'POST',
+      '/v1/uploads',
+      authTus({
+        'upload-length': '10',
+        'upload-metadata': uploadMetadata(PREPARE_ID),
+        'content-type': 'application/octet-stream',
+      }),
+    );
+    expect(res.status).toBe(201);
   });
 
   it('rejects an unauthenticated upload creation', async () => {
