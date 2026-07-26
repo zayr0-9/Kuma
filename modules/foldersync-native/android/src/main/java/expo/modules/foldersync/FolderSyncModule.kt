@@ -407,6 +407,28 @@ class FolderSyncModule : Module() {
       SyncStore.get(context()).recentEvents(limit).map { eventMap(it) }
     }
 
+    // Remote gallery / restore (spec 6.6). The desktop is the source of truth for what is
+    // backed up; these page the listing and fetch desktop-generated thumbnails / full images
+    // into a local cache (returning file:// URIs the RN <Image> renders), or download a full
+    // image into the phone's photo library. The bearer token and pinned TLS stay native.
+
+    AsyncFunction("listRemoteImages") { rootId: String, cursor: String?, limit: Int ->
+      ControlClient.forPairedDesktop(context())?.listRemoteImages(rootId, cursor, limit)
+        ?: mapOf("ok" to false, "reason" to "not_paired")
+    }
+
+    AsyncFunction("fetchThumbnail") { fileId: String, versionId: String ->
+      RemoteMedia.fetchThumbnail(context(), fileId, versionId)
+    }
+
+    AsyncFunction("fetchRemoteImage") { fileId: String, versionId: String ->
+      RemoteMedia.fetchImage(context(), fileId, versionId)
+    }
+
+    AsyncFunction("downloadRemoteImage") { fileId: String, name: String, contentType: String ->
+      RemoteMedia.download(context(), fileId, name, contentType)
+    }
+
     // Release the multicast lock + discovery listener when the module is torn down.
     OnDestroy {
       discovery?.stop()
