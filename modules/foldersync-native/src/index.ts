@@ -153,7 +153,7 @@ export interface SyncRoot {
   cleanupFailedCount: number;
 }
 
-/** The file currently being uploaded (spec 18.3, one at a time); null when the queue is idle. */
+/** A file whose bytes are currently streaming (spec 18.3, up to a small bounded pool at once). */
 export interface ActiveTransfer {
   rootId: string;
   fileName: string;
@@ -177,7 +177,8 @@ export interface TransferJob {
 
 /** Pull-model snapshot of the transfer queue for the Transfers view (spec 5.5). */
 export interface TransfersSnapshot {
-  active: ActiveTransfer | null;
+  /** Files whose bytes are streaming right now — up to the bounded pool size (spec 18.3). */
+  active: ActiveTransfer[];
   jobs: TransferJob[];
 }
 
