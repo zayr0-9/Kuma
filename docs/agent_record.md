@@ -23,6 +23,42 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-26T13:15+0100 — feat/ui-overhaul — UI/UX overhaul: "graphite + one spark" design system (both apps)
+
+- **Done:** replaced the beta-scaffolded look with one shared design language across mobile +
+  desktop (agent_design §7 "graphite + one spark"): near-monochrome zinc palette, a single accent
+  (blue #2563EB / #3B82F6) on the primary action only, depth via **elevation** (surfaces float,
+  interactive elements sink on press) — never gradients, no border except a hairline separator, flat
+  fills, Lucide icons. Light + dark, follows the OS.
+  - **Mobile:** new token layer `src/theme/` (`tokens.ts` roles/scale/elevation + `useTheme()`) and a
+    primitive set `src/components/` (`Button`, `IconButton`, `Card`, `StatusPill`, `ProgressBar`,
+    `Divider`, `Icon`, `Text`, `Screen`). Home, Folders, Transfers + the nav header are rebuilt on it
+    — every hard-coded hex and every `borderWidth` on a card/button is gone (those violated §2/§7).
+    `StatusPill` maps engine states to the §2 status vocabulary. Every handler/native call preserved
+    verbatim — a pure presentational change.
+  - **Desktop:** `theme.css` (the same tokens as CSS custom properties + component classes) imported
+    in `main.tsx`; the Pairing and Destinations panels are restyled from browser-default HTML onto
+    cards/buttons/pills/chips with `lucide-react` icons. All bridge logic preserved.
+  - **Icons:** `lucide-react-native` (mobile, via `react-native-svg`) + `lucide-react` (desktop),
+    both v1.26 → pixel-identical shapes on both sides.
+- **Files:** mobile `src/theme/{tokens,index}.ts`, `src/components/*` (10 new),
+  `app/{_layout,index,folders,transfers}.tsx`, `package.json` (+`react-native-svg` 15.15.4, +`lucide-react-native`); desktop `src/renderer/src/{theme.css (new),main.tsx,App.tsx,PairingPanel.tsx,DestinationsPanel.tsx}`,
+  `package.json` (+`lucide-react`); `docs/agent_design.md` (§2/§4 tightened, new §7 design system,
+  old current-state → §8).
+- **Build:** `react-native-svg` is a new native module → the first APK to include it is EAS dev build
+  **`24bd5a3a`** (triggered from apps/mobile). Icons render only after installing that APK; the rest
+  of the overhaul is pure JS (Metro reload). Awaits compile + device verification of the new look.
+- **Gates:** `pnpm -r typecheck` (6 projects) + `eslint` clean; contracts 72 + desktop 190 tests
+  green (unchanged — presentational); prettier/`format:check` clean (last).
+- **PR:** `feat/ui-overhaul` — background-sync merged (#23, `d7ff811`), so this branch was
+  **rebased onto main** (`git rebase --onto origin/main feat/background-sync`); the PR diff is now
+  design-only (26 files, no native/background-sync files). Open + squash-merge.
+- **Docs updated:** `agent_design.md` (the design language is now codified in §7), this record.
+- **Follow-ups:** device-verify the new look + icons on the Samsung. Still open from prior sessions:
+  per-OEM battery-exclusion screen (spec 14.8), deletion propagation (spec 19), richer service states
+  (spec 14.5), large-folder stress test. A shared cross-platform `packages/ui` stays deferred (RN and
+  the DOM don't share component code; token values are kept in lockstep + documented in §7).
+
 ### 2026-07-26T12:08+0100 — feat/background-sync — Automatic background sync: auto-start the foreground service (spec 14)
 
 - **Done:** closed the "sync only runs when I press Sync now" gap. The foreground service already

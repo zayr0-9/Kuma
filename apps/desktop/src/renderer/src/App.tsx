@@ -8,16 +8,25 @@ export function App(): ReactElement {
   const runtime = window.folderSync?.runtimeVersions;
 
   return (
-    <main>
-      <h1>FolderSync companion</h1>
+    <div className="app-shell">
+      <header className="app-header">
+        <h1 className="display">FolderSync</h1>
+        <p className="body muted">
+          Desktop companion — receive backups from your paired phones over your Wi‑Fi network.
+        </p>
+      </header>
       {runtime ? (
         <>
           <PairingPanel />
           <DestinationsPanel />
         </>
       ) : (
-        <p>Preload bridge unavailable — this is a bug, check the main-process logs.</p>
+        <div className="card alert alert--danger">
+          <span className="body">
+            Preload bridge unavailable — this is a bug, check the main-process logs.
+          </span>
+        </div>
       )}
-    </main>
+    </div>
   );
 }

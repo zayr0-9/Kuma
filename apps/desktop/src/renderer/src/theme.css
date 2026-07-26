@@ -1,0 +1,408 @@
+/*
+ * Desktop design language (agent_design.md §7). The same "graphite + one spark" tokens as the
+ * mobile app — identical palette, spacing, radii, and elevation — so the two apps read as one
+ * product. Depth is elevation (surfaces float), never gradients; the only border is a hairline
+ * separator; the one accent appears on the primary action alone. Follows the OS light/dark
+ * setting via prefers-color-scheme (both modes first-class).
+ */
+
+:root {
+  /* Colour roles — light */
+  --canvas: #fafafa;
+  --surface: #ffffff;
+  --surface-sunken: #f4f4f5;
+  --surface-raised: #ffffff;
+  --text: #18181b;
+  --text-muted: #71717a;
+  --text-subtle: #a1a1aa;
+  --separator: #e4e4e7;
+  --accent: #2563eb;
+  --accent-pressed: #1d4ed8;
+  --on-accent: #ffffff;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+
+  /* Elevation — light */
+  --e1: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --e2: 0 3px 8px rgba(0, 0, 0, 0.12);
+  --e3: 0 6px 16px rgba(0, 0, 0, 0.16);
+
+  /* Spacing — 4/8 grid */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-xxl: 32px;
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #09090b;
+    --surface: #18181b;
+    --surface-sunken: #27272a;
+    --surface-raised: #27272a;
+    --text: #fafafa;
+    --text-muted: #a1a1aa;
+    --text-subtle: #71717a;
+    --separator: #27272a;
+    --accent: #3b82f6;
+    --accent-pressed: #2563eb;
+    --on-accent: #ffffff;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+
+    --e1: 0 1px 4px rgba(0, 0, 0, 0.4);
+    --e2: 0 4px 10px rgba(0, 0, 0, 0.5);
+    --e3: 0 8px 18px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* Reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--canvas);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* Type scale (one scale, shared with mobile) */
+.display {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 34px;
+  letter-spacing: -0.4px;
+}
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+  letter-spacing: -0.2px;
+}
+.body {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 21px;
+}
+.body-strong {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 21px;
+}
+.caption {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+}
+.label {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+.subtle {
+  color: var(--text-subtle);
+}
+
+/* Layout */
+.app-shell {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+.app-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.stack-sm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Section */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* Card — a floating surface, no border */
+.card {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--e1);
+  padding: var(--space-lg);
+}
+.card--sunken {
+  background: var(--surface-sunken);
+  box-shadow: none;
+}
+.card--pad-none {
+  padding: 0;
+}
+
+/* Circular icon chip (leading a card/row) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  color: var(--text);
+  flex: none;
+}
+.chip--accent {
+  color: var(--accent);
+}
+.chip--lg {
+  width: 56px;
+  height: 56px;
+}
+
+/* Buttons — no borders; depth is elevation; press sinks toward the surface */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  min-height: 40px;
+  padding: 0 var(--space-lg);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 0.06s ease,
+    box-shadow 0.06s ease,
+    background 0.12s ease;
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.btn--primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--e2);
+}
+.btn--primary:hover:not(:disabled) {
+  box-shadow: var(--e3);
+}
+.btn--primary:active:not(:disabled) {
+  background: var(--accent-pressed);
+  box-shadow: var(--e1);
+  transform: translateY(1px);
+}
+.btn--secondary {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--e1);
+}
+.btn--secondary:active:not(:disabled) {
+  background: var(--surface-sunken);
+  box-shadow: none;
+  transform: translateY(1px);
+}
+.btn--ghost {
+  background: transparent;
+  color: var(--text);
+}
+.btn--ghost:hover:not(:disabled) {
+  background: var(--surface-sunken);
+}
+.btn--danger {
+  color: var(--danger);
+}
+
+/* Circular icon-only button */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    transform 0.06s ease,
+    background 0.12s ease;
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--surface-sunken);
+}
+.icon-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Selectable row (a well you pick from) */
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  text-align: left;
+  padding: var(--space-md);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.pick-row:hover:not(:disabled) {
+  background: var(--surface);
+  box-shadow: var(--e1);
+}
+.pick-row:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Status pill — one status system (agent_design.md §2) */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 3px var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pill--success {
+  color: var(--success);
+}
+.pill--accent {
+  color: var(--accent);
+}
+.pill--muted {
+  color: var(--text-muted);
+}
+.pill--warning {
+  color: var(--warning);
+}
+.pill--danger {
+  color: var(--danger);
+}
+
+/* The only border: a hairline separator */
+.divider {
+  height: 1px;
+  background: var(--separator);
+  border: none;
+}
+
+/* Reset list semantics */
+.list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+/* QR surface */
+.qr {
+  display: block;
+  width: 240px;
+  height: 240px;
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  padding: var(--space-md);
+  box-shadow: var(--e1);
+}
+
+/* Inline alert (needs-attention / error text) */
+.alert {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+.alert--danger {
+  color: var(--danger);
+}
+.alert--warning {
+  color: var(--warning);
+}
+.alert--success {
+  color: var(--success);
+}
+
+/* Padding overrides for nested wells */
+.card--pad-md {
+  padding: var(--space-md);
+}

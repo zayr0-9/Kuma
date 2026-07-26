@@ -1,18 +1,31 @@
-import { Link } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Switch,
+  ArrowRight,
+  Cloud,
+  Folder,
+  Inbox,
+  Monitor,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Trash2,
+  TriangleAlert,
+} from 'lucide-react-native';
+import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, View } from 'react-native';
+import {
+  Button,
+  Card,
+  Divider,
+  Icon,
+  IconButton,
+  Screen,
+  StatusPill,
+  type StatusKind,
   Text,
-  View,
-} from 'react-native';
-import { SpikeButton } from '../src/components/SpikeButton.tsx';
+} from '../src/components/index.ts';
+import { useTheme } from '../src/theme/index.ts';
 import {
   addRoot,
   type AvailableDestination,
@@ -49,6 +62,8 @@ interface PendingPick {
 const POLL_MS = 2500;
 
 export default function FoldersScreen(): ReactElement {
+  const t = useTheme();
+  const router = useRouter();
   const linked = isNativeLinked();
   const [roots, setRoots] = useState<SyncRoot[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -204,55 +219,80 @@ export default function FoldersScreen(): ReactElement {
 
   if (!linked) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.title}>Folders</Text>
-        <Text>Rebuild the dev client to include the native module.</Text>
+      <Screen scroll={false}>
+        <View style={styles.centered}>
+          <Text variant="title">Folders</Text>
+          <Text variant="body" tone="muted">
+            Rebuild the dev client to include the native module.
+          </Text>
+        </View>
         <StatusBar style="auto" />
-      </View>
+      </Screen>
     );
   }
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.container}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true);
-            void refresh().finally(() => setRefreshing(false));
-          }}
-        />
-      }
+    <Screen
+      onRefresh={() => {
+        setRefreshing(true);
+        void refresh().finally(() => setRefreshing(false));
+      }}
+      refreshing={refreshing}
     >
-      <Text style={styles.title}>Folders</Text>
-
       {pending === null ? (
         <View style={styles.actionRow}>
-          <SpikeButton label="Add folder" onPress={() => void onAddFolder()} disabled={busy} />
-          <SpikeButton label="Sync now" onPress={() => void onSyncNow()} disabled={busy} />
+          <Button
+            label="Add folder"
+            icon={Plus}
+            onPress={() => void onAddFolder()}
+            disabled={busy}
+          />
+          <Button
+            label="Sync now"
+            icon={RefreshCw}
+            variant="secondary"
+            onPress={() => void onSyncNow()}
+            disabled={busy}
+          />
         </View>
       ) : (
-        <View style={styles.chooser}>
-          <Text style={styles.chooserTitle}>Back up “{pending.displayName}” to…</Text>
+        <Card style={styles.gap}>
+          <Text variant="title">Back up “{pending.displayName}”</Text>
+          <Text variant="caption" tone="muted">
+            Choose a destination on your desktop
+          </Text>
           {destinations.map((dest) => (
             <Pressable
               key={dest.mappingId}
-              style={styles.destination}
               onPress={() => void onBind(dest)}
               disabled={busy || !dest.destinationAvailable}
+              style={({ pressed }) => [
+                styles.destRow,
+                {
+                  backgroundColor: pressed ? t.colors.surface : t.colors.surfaceSunken,
+                  borderRadius: t.radius.md,
+                  padding: t.space.md,
+                  gap: t.space.md,
+                },
+                !dest.destinationAvailable && styles.disabled,
+              ]}
             >
-              <Text style={styles.destinationName}>{dest.displayName}</Text>
-              <Text style={styles.muted}>
-                {dest.destinationAvailable
-                  ? dest.freeBytes === null
-                    ? 'Available'
-                    : `${formatBytes(dest.freeBytes)} free`
-                  : 'Unavailable'}
-              </Text>
+              <Icon icon={Monitor} tone="text" />
+              <View style={styles.destText}>
+                <Text variant="bodyStrong">{dest.displayName}</Text>
+                <Text variant="caption" tone="muted">
+                  {dest.destinationAvailable
+                    ? dest.freeBytes === null
+                      ? 'Available'
+                      : `${formatBytes(dest.freeBytes)} free`
+                    : 'Unavailable'}
+                </Text>
+              </View>
+              <Icon icon={ArrowRight} size={18} />
             </Pressable>
           ))}
 
+          <Divider />
           <PolicyToggle
             label="Keep files on the phone after backup"
             value={retention === 'keep_on_phone'}
@@ -268,45 +308,83 @@ export default function FoldersScreen(): ReactElement {
             }
           />
 
-          <Pressable
-            style={styles.cancel}
+          <Button
+            label="Cancel"
+            variant="ghost"
+            block
             onPress={() => {
               setPending(null);
               setDestinations([]);
             }}
-          >
-            <Text style={styles.cancelText}>Cancel</Text>
-          </Pressable>
-        </View>
+          />
+        </Card>
       )}
 
       {pending === null && roots.length > 0 ? (
-        <View style={styles.syncCard}>
+        <Card>
           <View style={styles.syncRow}>
-            <View style={styles.syncTextCol}>
-              <Text style={styles.syncTitle}>Automatic background sync</Text>
-              <Text style={styles.muted}>{backgroundSyncSummary(service)}</Text>
+            <View
+              style={[
+                styles.chip,
+                { backgroundColor: t.colors.surfaceSunken, borderRadius: t.radius.pill },
+              ]}
+            >
+              <Icon icon={Cloud} tone={(service?.autoSyncEnabled ?? true) ? 'accent' : 'default'} />
+            </View>
+            <View style={styles.syncText}>
+              <Text variant="bodyStrong">Automatic background sync</Text>
+              <Text variant="caption" tone="muted">
+                {backgroundSyncSummary(service)}
+              </Text>
             </View>
             <Switch
               value={service?.autoSyncEnabled ?? true}
               onValueChange={(next) => void onToggleBackgroundSync(next)}
+              trackColor={{ false: t.colors.surfaceSunken, true: t.colors.accent }}
+              thumbColor={t.colors.surface}
             />
           </View>
-        </View>
+        </Card>
       ) : null}
 
       {roots.length === 0 && pending === null ? (
-        <Text style={styles.muted}>No folders yet. Tap “Add folder” to back one up.</Text>
+        <Card tone="sunken" style={styles.empty}>
+          <View
+            style={[
+              styles.chip,
+              styles.emptyChip,
+              { backgroundColor: t.colors.surface, borderRadius: t.radius.pill },
+            ]}
+          >
+            <Icon icon={Inbox} tone="text" size={24} />
+          </View>
+          <Text variant="bodyStrong">No folders yet</Text>
+          <Text variant="caption" tone="muted" style={styles.emptyHint}>
+            Tap “Add folder” to pick a folder on your phone and back it up.
+          </Text>
+        </Card>
       ) : null}
 
       {roots.map((root) => (
-        <View key={root.id} style={styles.card}>
+        <Card key={root.id} style={styles.gap}>
           <View style={styles.cardHeader}>
-            <Text style={styles.folderName}>{root.displayName}</Text>
-            <StatusBadge root={root} />
+            <View style={styles.folderTitle}>
+              <Icon icon={Folder} tone="text" />
+              <Text variant="title" numberOfLines={1} style={styles.flex}>
+                {root.displayName}
+              </Text>
+            </View>
+            <StatusPill kind={rootStatusKind(root)} />
           </View>
-          <Text style={styles.muted}>Desktop: {root.destinationName}</Text>
-          <Text style={styles.policy}>
+
+          <View style={styles.metaRow}>
+            <Icon icon={Monitor} size={14} />
+            <Text variant="caption" tone="muted">
+              {root.destinationName}
+            </Text>
+          </View>
+
+          <Text variant="caption" tone="subtle">
             {root.phoneRetentionPolicy === 'keep_on_phone'
               ? 'Keep on phone'
               : 'Delete after backup'}
@@ -315,55 +393,92 @@ export default function FoldersScreen(): ReactElement {
               ? 'Preserve desktop copies'
               : 'Mirror deletions'}
           </Text>
-          {root.phoneRetentionPolicy === 'delete_after_verified_backup' ? (
-            <Text style={styles.stats}>
-              {root.cleanedCount} freed from phone
-              {root.backedUpCount > 0 ? ` · ${root.backedUpCount} awaiting cleanup` : ''}
-              {root.pendingCount > 0
-                ? ` · ${root.pendingCount} pending · ${formatBytes(root.pendingBytes)}`
-                : ''}
-            </Text>
-          ) : (
-            <Text style={styles.stats}>
-              {root.backedUpCount} backed up
-              {root.pendingCount > 0
-                ? ` · ${root.pendingCount} pending · ${formatBytes(root.pendingBytes)}`
-                : ' · nothing pending'}
-            </Text>
-          )}
-          <Text style={styles.muted}>Last scan {formatRelative(root.lastCompleteScanAt)}</Text>
+
+          <Text variant="bodyStrong">
+            {root.phoneRetentionPolicy === 'delete_after_verified_backup'
+              ? `${root.cleanedCount} freed from phone` +
+                (root.backedUpCount > 0 ? ` · ${root.backedUpCount} awaiting cleanup` : '') +
+                (root.pendingCount > 0
+                  ? ` · ${root.pendingCount} pending · ${formatBytes(root.pendingBytes)}`
+                  : '')
+              : `${root.backedUpCount} backed up` +
+                (root.pendingCount > 0
+                  ? ` · ${root.pendingCount} pending · ${formatBytes(root.pendingBytes)}`
+                  : ' · nothing pending')}
+          </Text>
+
+          <Text variant="caption" tone="subtle">
+            Last scan {formatRelative(root.lastCompleteScanAt)}
+          </Text>
+
           {root.cleanupFailedCount > 0 ? (
-            <View style={styles.cleanupFailedRow}>
-              <Text style={styles.cleanupFailedText}>
+            <View
+              style={[
+                styles.attentionRow,
+                {
+                  backgroundColor: t.colors.surfaceSunken,
+                  borderRadius: t.radius.md,
+                  padding: t.space.md,
+                  gap: t.space.sm,
+                },
+              ]}
+            >
+              <Icon icon={TriangleAlert} size={16} tone="warning" />
+              <Text variant="caption" tone="warning" style={styles.flex}>
                 {root.cleanupFailedCount} backed up but couldn’t be removed from the phone
               </Text>
-              <Pressable onPress={() => void onRetryCleanup(root)} hitSlop={8}>
-                <Text style={styles.retry}>Retry</Text>
-              </Pressable>
+              <IconButton
+                icon={RotateCcw}
+                accessibilityLabel="Retry cleanup"
+                variant="ghost"
+                size={36}
+                onPress={() => void onRetryCleanup(root)}
+              />
             </View>
           ) : null}
+
           {root.lastErrorMessage !== null && root.status === 'error' ? (
-            <Text style={styles.error}>{root.lastErrorMessage}</Text>
+            <Text variant="caption" tone="danger">
+              {root.lastErrorMessage}
+            </Text>
           ) : null}
 
+          <Divider />
           <View style={styles.cardActions}>
             <View style={styles.enableRow}>
-              <Switch value={root.enabled} onValueChange={() => void onToggle(root)} />
-              <Text style={styles.muted}>{root.enabled ? 'Active' : 'Paused'}</Text>
+              <Switch
+                value={root.enabled}
+                onValueChange={() => void onToggle(root)}
+                trackColor={{ false: t.colors.surfaceSunken, true: t.colors.accent }}
+                thumbColor={t.colors.surface}
+              />
+              <Text variant="caption" tone="muted">
+                {root.enabled ? 'Active' : 'Paused'}
+              </Text>
             </View>
-            <Pressable onPress={() => onRemove(root)} hitSlop={8}>
-              <Text style={styles.remove}>Remove</Text>
-            </Pressable>
+            <Button
+              label="Remove"
+              icon={Trash2}
+              variant="ghost"
+              danger
+              onPress={() => onRemove(root)}
+            />
           </View>
-        </View>
+        </Card>
       ))}
 
-      <Link href="/transfers" style={styles.link}>
-        View transfers
-      </Link>
-      {busy ? <ActivityIndicator style={styles.spinner} /> : null}
+      {roots.length > 0 ? (
+        <Button
+          label="View transfers"
+          icon={ArrowRight}
+          variant="ghost"
+          onPress={() => router.push('/transfers')}
+        />
+      ) : null}
+
+      {busy ? <ActivityIndicator color={t.colors.accent} style={styles.spinner} /> : null}
       <StatusBar style="auto" />
-    </ScrollView>
+    </Screen>
   );
 }
 
@@ -376,30 +491,30 @@ function PolicyToggle({
   value: boolean;
   onChange: (value: boolean) => void;
 }): ReactElement {
+  const t = useTheme();
   return (
     <View style={styles.policyRow}>
-      <Text style={styles.policyLabel}>{label}</Text>
-      <Switch value={value} onValueChange={onChange} />
+      <Text variant="body" style={styles.flex}>
+        {label}
+      </Text>
+      <Switch
+        value={value}
+        onValueChange={onChange}
+        trackColor={{ false: t.colors.surfaceSunken, true: t.colors.accent }}
+        thumbColor={t.colors.surface}
+      />
     </View>
   );
 }
 
-function StatusBadge({ root }: { root: SyncRoot }): ReactElement {
-  const text =
-    root.status === 'scanning'
-      ? 'Scanning'
-      : root.status === 'syncing'
-        ? 'Syncing'
-        : root.status === 'error'
-          ? 'Error'
-          : root.enabled
-            ? 'Idle'
-            : 'Paused';
-  return (
-    <View style={[styles.badge, root.status === 'error' && styles.badgeError]}>
-      <Text style={styles.badgeText}>{text}</Text>
-    </View>
-  );
+// Map a root's engine state to the one shared status vocabulary (agent_design.md §2).
+function rootStatusKind(root: SyncRoot): StatusKind {
+  if (root.status === 'error') return 'error';
+  if (root.cleanupFailedCount > 0) return 'attention';
+  if (root.status === 'scanning' || root.status === 'syncing') return 'backingUp';
+  if (!root.enabled) return 'paused';
+  if (root.pendingCount > 0) return 'waiting';
+  return 'upToDate';
 }
 
 function backgroundSyncSummary(service: ServiceStatus | null): string {
@@ -454,76 +569,34 @@ function formatRelative(epochMs: number | null): string {
 
 const styles = StyleSheet.create({
   actionRow: { flexDirection: 'row', gap: 8 },
-  badge: { backgroundColor: '#334155', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
-  badgeError: { backgroundColor: '#b91c1c' },
-  badgeText: { color: '#ffffff', fontSize: 12, fontWeight: '600' },
-  cancel: { alignItems: 'center', paddingVertical: 10 },
-  cancelText: { color: '#64748b', fontWeight: '600' },
-  card: {
-    backgroundColor: '#f8fafc',
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    borderWidth: 1,
-    gap: 4,
-    padding: 14,
-  },
-  cardActions: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 6,
-  },
-  cardHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
-  centered: { alignItems: 'center', flex: 1, gap: 8, justifyContent: 'center', padding: 24 },
-  cleanupFailedRow: {
+  attentionRow: { alignItems: 'center', flexDirection: 'row' },
+  cardActions: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  cardHeader: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'space-between',
   },
-  cleanupFailedText: { color: '#b91c1c', flex: 1 },
-  chooser: {
-    backgroundColor: '#eef2ff',
-    borderRadius: 10,
-    gap: 8,
-    padding: 14,
-  },
-  chooserTitle: { fontSize: 16, fontWeight: '600' },
-  container: { gap: 12, padding: 20 },
-  destination: {
-    backgroundColor: '#ffffff',
-    borderColor: '#c7d2fe',
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 12,
-  },
-  destinationName: { fontWeight: '600' },
+  centered: { alignItems: 'center', flex: 1, gap: 8, justifyContent: 'center' },
+  chip: { alignItems: 'center', height: 40, justifyContent: 'center', width: 40 },
+  destRow: { alignItems: 'center', flexDirection: 'row' },
+  destText: { flex: 1, gap: 2 },
+  disabled: { opacity: 0.4 },
+  empty: { alignItems: 'center', gap: 6, paddingVertical: 28 },
+  emptyChip: { height: 56, width: 56 },
+  emptyHint: { textAlign: 'center' },
   enableRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
-  error: { color: '#b91c1c' },
-  folderName: { fontSize: 18, fontWeight: '600' },
-  link: { color: '#1d4ed8', fontWeight: '600', paddingVertical: 8 },
-  muted: { color: '#64748b' },
-  policy: { color: '#475569', fontSize: 13 },
-  policyLabel: { flex: 1, paddingRight: 12 },
-  policyRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
-  remove: { color: '#b91c1c', fontWeight: '600' },
-  retry: { color: '#1d4ed8', fontWeight: '600' },
-  spinner: { marginTop: 8 },
-  syncCard: {
-    backgroundColor: '#ecfdf5',
-    borderColor: '#a7f3d0',
-    borderRadius: 10,
-    borderWidth: 1,
-    padding: 14,
-  },
-  syncRow: {
+  flex: { flex: 1 },
+  folderTitle: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 8 },
+  gap: { gap: 6 },
+  metaRow: { alignItems: 'center', flexDirection: 'row', gap: 6 },
+  policyRow: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 12,
     justifyContent: 'space-between',
   },
-  syncTextCol: { flex: 1, gap: 2 },
-  syncTitle: { fontSize: 15, fontWeight: '600' },
-  stats: { color: '#0f172a', fontWeight: '500' },
-  title: { fontSize: 24, fontWeight: '600' },
+  spinner: { marginTop: 8 },
+  syncRow: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  syncText: { flex: 1, gap: 2 },
 });

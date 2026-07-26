@@ -1,6 +1,9 @@
 import { StatusBar } from 'expo-status-bar';
-import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Clock, FileUp, UploadCloud } from 'lucide-react-native';
+import { type ReactElement, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { Card, Divider, Icon, ProgressBar, Screen, Text } from '../src/components/index.ts';
+import { useTheme } from '../src/theme/index.ts';
 import {
   type ActiveTransfer,
   getSyncEvents,
@@ -17,6 +20,7 @@ import {
 const POLL_MS = 1000;
 
 export default function TransfersScreen(): ReactElement {
+  const t = useTheme();
   const linked = isNativeLinked();
   const [active, setActive] = useState<ActiveTransfer | null>(null);
   const [jobs, setJobs] = useState<TransferJob[]>([]);
@@ -48,11 +52,15 @@ export default function TransfersScreen(): ReactElement {
 
   if (!linked) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.title}>Transfers</Text>
-        <Text>Rebuild the dev client to include the native module.</Text>
+      <Screen scroll={false}>
+        <View style={styles.centered}>
+          <Text variant="title">Transfers</Text>
+          <Text variant="body" tone="muted">
+            Rebuild the dev client to include the native module.
+          </Text>
+        </View>
         <StatusBar style="auto" />
-      </View>
+      </Screen>
     );
   }
 
@@ -60,74 +68,126 @@ export default function TransfersScreen(): ReactElement {
   const failed = jobs.filter((job) => job.state === 'failed');
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Transfers</Text>
-
-      <Text style={styles.section}>Active</Text>
-      {active === null ? (
-        <Text style={styles.muted}>Nothing uploading right now.</Text>
-      ) : (
-        <View style={styles.card}>
-          <Text style={styles.fileName}>{active.fileName}</Text>
-          <ProgressBar value={active.bytesUploaded} total={active.expectedSize} />
-          <Text style={styles.muted}>
-            {formatBytes(active.bytesUploaded)} / {formatBytes(active.expectedSize)}
+    <Screen>
+      <Section label="Active">
+        {active === null ? (
+          <Text variant="body" tone="muted">
+            Nothing uploading right now.
           </Text>
-        </View>
-      )}
-
-      <Text style={styles.section}>Queued ({queued.length})</Text>
-      {queued.length === 0 ? (
-        <Text style={styles.muted}>No files waiting.</Text>
-      ) : (
-        queued.map((job) => (
-          <View key={job.id} style={styles.jobRow}>
-            <Text style={styles.jobName} numberOfLines={1}>
-              {job.fileEntryId.slice(0, 8)}
+        ) : (
+          <Card style={styles.gap}>
+            <View style={styles.activeHead}>
+              <View
+                style={[
+                  styles.chip,
+                  { backgroundColor: t.colors.surfaceSunken, borderRadius: t.radius.pill },
+                ]}
+              >
+                <Icon icon={UploadCloud} tone="accent" />
+              </View>
+              <Text variant="bodyStrong" numberOfLines={1} style={styles.flex}>
+                {active.fileName}
+              </Text>
+            </View>
+            <ProgressBar value={active.bytesUploaded} total={active.expectedSize} />
+            <Text variant="caption" tone="muted">
+              {formatBytes(active.bytesUploaded)} / {formatBytes(active.expectedSize)}
             </Text>
-            <Text style={styles.muted}>{formatBytes(job.expectedSize)}</Text>
-          </View>
-        ))
-      )}
+          </Card>
+        )}
+      </Section>
+
+      <Section label={`Queued (${queued.length})`}>
+        {queued.length === 0 ? (
+          <Text variant="body" tone="muted">
+            No files waiting.
+          </Text>
+        ) : (
+          <Card padding="none">
+            {queued.map((job, i) => (
+              <View key={job.id}>
+                {i > 0 ? <Divider /> : null}
+                <View style={styles.jobRow}>
+                  <Icon icon={FileUp} size={16} />
+                  <Text variant="body" numberOfLines={1} style={styles.flex}>
+                    {job.fileEntryId.slice(0, 8)}
+                  </Text>
+                  <Text variant="caption" tone="muted">
+                    {formatBytes(job.expectedSize)}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </Card>
+        )}
+      </Section>
 
       {failed.length > 0 ? (
-        <>
-          <Text style={styles.section}>Failed ({failed.length})</Text>
-          {failed.map((job) => (
-            <View key={job.id} style={styles.jobRow}>
-              <Text style={styles.jobName} numberOfLines={1}>
-                {job.fileEntryId.slice(0, 8)}
-              </Text>
-              <Text style={styles.error}>{job.lastErrorCode ?? 'failed'}</Text>
-            </View>
-          ))}
-        </>
+        <Section label={`Failed (${failed.length})`}>
+          <Card padding="none">
+            {failed.map((job, i) => (
+              <View key={job.id}>
+                {i > 0 ? <Divider /> : null}
+                <View style={styles.jobRow}>
+                  <Icon icon={FileUp} size={16} tone="danger" />
+                  <Text variant="body" numberOfLines={1} style={styles.flex}>
+                    {job.fileEntryId.slice(0, 8)}
+                  </Text>
+                  <Text variant="caption" tone="danger">
+                    {job.lastErrorCode ?? 'failed'}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </Card>
+        </Section>
       ) : null}
 
-      <Text style={styles.section}>History</Text>
-      {events.length === 0 ? (
-        <Text style={styles.muted}>No events yet.</Text>
-      ) : (
-        events.map((event) => (
-          <View key={event.id} style={styles.eventRow}>
-            <Text style={event.severity === 'error' ? styles.error : styles.eventText}>
-              {event.message}
-            </Text>
-            <Text style={styles.eventTime}>{formatRelative(event.createdAt)}</Text>
-          </View>
-        ))
-      )}
+      <Section label="History">
+        {events.length === 0 ? (
+          <Text variant="body" tone="muted">
+            No events yet.
+          </Text>
+        ) : (
+          <Card padding="none">
+            {events.map((event, i) => (
+              <View key={event.id}>
+                {i > 0 ? <Divider /> : null}
+                <View style={styles.eventRow}>
+                  <Icon
+                    icon={Clock}
+                    size={14}
+                    tone={event.severity === 'error' ? 'danger' : 'default'}
+                  />
+                  <Text
+                    variant="body"
+                    tone={event.severity === 'error' ? 'danger' : 'default'}
+                    style={styles.flex}
+                  >
+                    {event.message}
+                  </Text>
+                  <Text variant="caption" tone="subtle">
+                    {formatRelative(event.createdAt)}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </Card>
+        )}
+      </Section>
 
       <StatusBar style="auto" />
-    </ScrollView>
+    </Screen>
   );
 }
 
-function ProgressBar({ value, total }: { value: number; total: number }): ReactElement {
-  const pct = total > 0 ? Math.min(100, Math.round((value / total) * 100)) : 0;
+function Section({ label, children }: { label: string; children: ReactNode }): ReactElement {
   return (
-    <View style={styles.progressTrack}>
-      <View style={[styles.progressFill, { width: `${pct}%` }]} />
+    <View style={styles.section}>
+      <Text variant="label" tone="subtle">
+        {label}
+      </Text>
+      {children}
     </View>
   );
 }
@@ -155,43 +215,24 @@ function formatRelative(epochMs: number): string {
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#f8fafc',
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    borderWidth: 1,
-    gap: 6,
-    padding: 14,
+  activeHead: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  centered: { alignItems: 'center', flex: 1, gap: 8, justifyContent: 'center' },
+  chip: { alignItems: 'center', height: 40, justifyContent: 'center', width: 40 },
+  eventRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  centered: { alignItems: 'center', flex: 1, gap: 8, justifyContent: 'center', padding: 24 },
-  container: { gap: 8, padding: 20 },
-  error: { color: '#b91c1c' },
-  eventRow: { borderBottomColor: '#f1f5f9', borderBottomWidth: 1, paddingVertical: 6 },
-  eventText: { color: '#0f172a' },
-  eventTime: { color: '#94a3b8', fontSize: 12 },
-  fileName: { fontWeight: '600' },
-  jobName: { color: '#0f172a', flex: 1, paddingRight: 12 },
+  flex: { flex: 1 },
+  gap: { gap: 8 },
   jobRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  muted: { color: '#64748b' },
-  progressFill: { backgroundColor: '#1d4ed8', height: '100%' },
-  progressTrack: {
-    backgroundColor: '#e2e8f0',
-    borderRadius: 4,
-    height: 8,
-    overflow: 'hidden',
-    width: '100%',
-  },
-  section: {
-    color: '#334155',
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 10,
-    textTransform: 'uppercase',
-  },
-  title: { fontSize: 24, fontWeight: '600' },
+  section: { gap: 8 },
 });

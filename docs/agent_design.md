@@ -41,7 +41,11 @@ Rules:
 
 - Colour roles are semantic tokens (`success`, `accent`, `warning`, `danger`, `muted`),
   defined once per platform theme, light and dark. Never hard-code hex values in
-  components.
+  components. The concrete values and the full role set live in §7 (the design system).
+- The palette is **"graphite + one spark"**: a near-monochrome zinc UI where the single
+  accent appears only on the primary action, so colour reads as _meaning_, not decoration.
+  The safety hues (`success`/`warning`/`danger`) are used sparingly and only where they
+  carry status meaning.
 - "Waiting for desktop" is a calm state. The desktop being offline is the normal case
   for a LAN product, not an error.
 - Progress is throttled (spec 29.2): update at most a few times per second, show
@@ -66,10 +70,13 @@ Rules:
   foreground-service notification copy follows spec 5.3 exactly.
 - **Desktop:** denser information layout is fine, but same hierarchy: status first,
   folders/destinations second, history third. Tray behaviour must be explicit (spec 20.3).
-- Both apps use an 4/8px spacing scale, one type scale (display / title / body /
-  caption), and the same iconography set for shared concepts (folder, destination,
-  trash, conflict, pause, error). When adding an icon for a shared concept, record it
-  here.
+- Both apps use a 4/8px spacing scale, one type scale (display / title / body /
+  caption), and the same Lucide iconography for shared concepts (folder, destination,
+  trash, conflict, pause, error). The concrete scale, elevation ramp, and icon set are in
+  §7. When adding an icon for a shared concept, record it there.
+- Depth is **elevation**, never gradients and never borders: surfaces float on the z-axis
+  and interactive elements sink on press. The only border in the system is the hairline
+  separator.
 - Relative timestamps in status surfaces ("2 minutes ago"); absolute timestamps in
   history/diagnostics.
 
@@ -92,7 +99,113 @@ icon for a shared concept; change any canonical wording; add a colour role or to
 UI PRs that introduce a term, state, or pattern not in this file must add it here in
 the same PR.
 
-## 7. Current state
+## 7. Design system — "graphite + one spark"
+
+The visual language both apps implement. One near-monochrome zinc palette; the single
+accent (a restrained blue) appears only on the primary action, so colour reads as meaning.
+Depth is elevation — surfaces float on the z-axis — never gradients. The only border is a
+hairline separator; buttons, cards, inputs, and every other interactive element are
+borderless. Flat fills throughout. Both light and dark are first-class and follow the OS.
+
+Source of truth in code (keep the two in lockstep — the values below are identical):
+
+- **Mobile:** `apps/mobile/src/theme/tokens.ts` (roles, scale, elevation) + `useTheme()`;
+  primitives in `apps/mobile/src/components/` — `Button`, `IconButton`, `Card`,
+  `StatusPill`, `ProgressBar`, `Divider`, `Icon`, `Text`, `Screen`.
+- **Desktop:** `apps/desktop/src/renderer/src/theme.css` — CSS custom properties plus
+  component classes (`.card`, `.btn`, `.icon-btn`, `.pill`, `.chip`, `.divider`, …).
+
+### 7.1 Colour roles (light / dark)
+
+| Role            | Light   | Dark    | Use                              |
+| --------------- | ------- | ------- | -------------------------------- |
+| `canvas`        | #FAFAFA | #09090B | page, behind floating surfaces   |
+| `surface`       | #FFFFFF | #18181B | a floating card                  |
+| `surfaceSunken` | #F4F4F5 | #27272A | wells: inputs, tracks, chips     |
+| `surfaceRaised` | #FFFFFF | #27272A | higher float (menus)             |
+| `text`          | #18181B | #FAFAFA | primary text                     |
+| `textMuted`     | #71717A | #A1A1AA | secondary text, default icon     |
+| `textSubtle`    | #A1A1AA | #71717A | timestamps, captions, fine print |
+| `separator`     | #E4E4E7 | #27272A | hairline separators ONLY         |
+| `accent`        | #2563EB | #3B82F6 | primary action only (the spark)  |
+| `accentPressed` | #1D4ED8 | #2563EB | accent under press               |
+| `onAccent`      | #FFFFFF | #FFFFFF | text/icons on an accent fill     |
+| `success`       | #16A34A | #22C55E | up to date / verified            |
+| `warning`       | #D97706 | #F59E0B | needs attention                  |
+| `danger`        | #DC2626 | #EF4444 | error / destructive              |
+
+### 7.2 Spacing (4/8 grid)
+
+`xs` 4 · `sm` 8 · `md` 12 · `lg` 16 · `xl` 24 · `xxl` 32
+
+### 7.3 Radii
+
+`sm` 8 · `md` 12 (buttons) · `lg` 16 (cards) · `xl` 20 · `pill` 999 (icon buttons, pills)
+
+### 7.4 Elevation — the z-axis (depth without gradients or borders)
+
+Four levels. Mobile maps them to RN `elevation` (Android) + `shadow*` (iOS); desktop to
+`box-shadow` vars `--e1..--e3`. Dark uses stronger, wider shadows and lighter surfaces,
+since near-black canvases swallow soft shadows.
+
+- **0** flush · **1** resting card · **2** raised control (primary button) · **3** highest
+  float (menus, floating actions)
+- Pressing an interactive element **sinks** it one level and nudges it 1px down — the
+  tactile signature of this UI. Never an opacity flash.
+
+### 7.5 Typography (one scale, system font)
+
+| Variant      | Size / Weight / Line              | Use                        |
+| ------------ | --------------------------------- | -------------------------- |
+| `display`    | 28 / 700 / 34                     | screen title               |
+| `title`      | 18 / 600 / 24                     | card + section headers     |
+| `body`       | 15 / 400 / 21                     | default text               |
+| `bodyStrong` | 15 / 600 / 21                     | emphasis, list-item titles |
+| `caption`    | 13 / 400 / 18                     | meta, secondary            |
+| `label`      | 12 / 700 / 16, uppercase, tracked | section labels             |
+
+System font only (SF / Roboto) — no bundled font (avoids native + CSP concerns).
+
+### 7.6 Icon set (Lucide — shared across both apps)
+
+`lucide-react-native` (mobile) and `lucide-react` (desktop), same version → pixel-identical
+shapes. 20px default, 2px rounded stroke, colour from a semantic role (muted by default).
+Canonical glyphs for shared concepts:
+
+| Concept                 | Lucide icon                   |
+| ----------------------- | ----------------------------- |
+| folder                  | `Folder`                      |
+| add folder              | `Plus` / `FolderPlus`         |
+| destination / desktop   | `Monitor`                     |
+| paired phone            | `Smartphone`                  |
+| pairing / phone+desktop | `MonitorSmartphone`           |
+| pair (QR)               | `QrCode`                      |
+| backing up / uploading  | `UploadCloud` / `RefreshCw`   |
+| up to date / verified   | `CircleCheck` / `ShieldCheck` |
+| waiting for desktop     | `CloudOff`                    |
+| paused                  | `Pause`                       |
+| needs attention         | `TriangleAlert`               |
+| error                   | `CircleAlert`                 |
+| remove / trash          | `Trash2`                      |
+| retry                   | `RotateCcw`                   |
+| history / time          | `Clock`                       |
+| navigate                | `ChevronRight` / `ArrowRight` |
+
+When you add an icon for a shared concept, record it here.
+
+### 7.7 Component inventory (parity on both apps)
+
+- **Button** — `primary` (accent fill, floats at e2), `secondary` (surface, e1), `ghost`
+  (no fill). All borderless; press sinks. Optional leading icon; ghost supports `danger`.
+- **IconButton** — circular, icon-only, same press behaviour.
+- **Card** — a floating surface (e1), radius `lg`, no border. `sunken` variant is a well.
+- **StatusPill** — the one status system (§2): a neutral sunken chip with a small coloured
+  icon + label carrying the colour role (so colour stays rare).
+- **ProgressBar** — sunken track, accent fill, rounded ends; throttled by the caller (§2).
+- **Divider** — the only border: a hairline separator, never around an element.
+- **Text** (mobile) / type classes (desktop) — the one type scale + a semantic tone.
+
+## 8. Current state
 
 - **Desktop pairing surface built** (first real UI; spec 24.3): `PairingPanel`
   (`apps/desktop/src/renderer/src/PairingPanel.tsx`) shows the QR the phone scans, the
@@ -136,6 +249,14 @@ the same PR.
   §5 destination-card fields. Per §4 the card uses a **relative** timestamp; absolute
   times stay in history/diagnostics. ("Last backed up" is the canonical rendering of the
   §5 "last synced" field — this product backs up phone→desktop.)
-- Colour tokens / `packages/ui`: still deferred (spec 10.1 — land shared presentational
-  pieces when a second surface needs them). The pairing panel uses semantic HTML and
-  structural layout only; no hard-coded colours yet.
+- **Design system landed (both apps).** The "graphite + one spark" language in §7 is now
+  implemented: mobile has a token layer (`src/theme/`) + primitive components
+  (`src/components/`), and all three mobile screens (home, Folders, Transfers) plus the
+  navigation header are rebuilt on it; desktop has `theme.css` (tokens + component classes)
+  and the Pairing and Destinations panels are restyled on it (no more browser-default HTML).
+  Both follow the OS light/dark setting. Icons are Lucide on both sides
+  (`lucide-react-native` / `lucide-react`, same version).
+- A shared cross-platform `packages/ui` remains deferred (spec 10.1): React Native and the
+  DOM don't share component code, so the honest shared artifact is the **token values**,
+  which are duplicated per platform but kept in lockstep and documented canonically in §7.
+  Extract a package only if drift becomes a real problem.
