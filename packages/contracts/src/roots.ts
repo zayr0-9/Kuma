@@ -21,3 +21,21 @@ export const rootRegisterResponseSchema = z.object({
   status: z.literal('registered'),
 });
 export type RootRegisterResponse = z.infer<typeof rootRegisterResponseSchema>;
+
+// GET /v1/roots/available (spec 5.1 step 10, 5.5 "Add/edit folder … sets destination
+// mapping"). The phone must see which desktop-approved destinations it can bind before
+// calling register — it references a mappingId, never an absolute path. Only the calling
+// device's *unbound* mappings are returned; an absolute destination path is never sent
+// (spec 30), only a display name and the volume's free space.
+export const availableDestinationSchema = z.object({
+  mappingId: uuidSchema,
+  displayName: z.string().min(1).max(128),
+  destinationAvailable: z.boolean(),
+  freeBytes: z.number().int().nonnegative().nullable(),
+});
+export type AvailableDestination = z.infer<typeof availableDestinationSchema>;
+
+export const rootsAvailableResponseSchema = z.object({
+  destinations: z.array(availableDestinationSchema),
+});
+export type RootsAvailableResponse = z.infer<typeof rootsAvailableResponseSchema>;

@@ -87,6 +87,30 @@ object PairingManager {
     }
   }
 
+  // Native-only view of the single paired desktop, INCLUDING the pin (never surfaced to JS
+  // via listPaired — spec 30). The control client and the tus uploader need host/port/pin to
+  // open a pinned connection. Null when unpaired. MVP is one desktop, so the first entry wins.
+  fun pairedTarget(context: Context): PairedTarget? {
+    val raw = prefs(context).getString(KEY_DEVICES, null) ?: return null
+    return try {
+      val array = JSONArray(raw)
+      if (array.length() == 0) return null
+      val entry = array.getJSONObject(0)
+      PairedTarget(
+        deviceId = entry.getString("deviceId"),
+        host = entry.getString("host"),
+        port = entry.getInt("port"),
+        pin = entry.getString("pin"),
+      )
+    } catch (e: Exception) {
+      null
+    }
+  }
+
+  // The stable per-phone device id (UUID v4) sent as the pairing identity — reused as the
+  // authenticated device id in control/upload metadata (spec 18.4).
+  fun phoneDeviceId(context: Context): String = deviceId(context)
+
   fun removePaired(context: Context, deviceId: String) {
     val remaining = listPaired(context).filter { it["deviceId"] != deviceId }
     val array = JSONArray()
@@ -107,6 +131,9 @@ object PairingManager {
   // --- internals ---
 
   private data class Qr(val host: String, val port: Int, val pin: String, val secret: String)
+
+  // The paired desktop's connection facts (native-only; carries the pin).
+  data class PairedTarget(val deviceId: String, val host: String, val port: Int, val pin: String)
 
   // Mirrors parsePairingQrPayload in packages/contracts: prefix check, then URLSearchParams-
   // style parsing of the query, with the same field validation as the Zod schema.

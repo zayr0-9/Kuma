@@ -12,6 +12,7 @@ import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.text.Normalizer
+import java.util.UUID
 
 // Spike 1 (spec 35): Storage Access Framework persistence and traversal. This is the
 // first real slice of the native module boundary (spec 13). React Native asks for
@@ -228,6 +229,58 @@ class FolderSyncModule : Module() {
 
     AsyncFunction("removePairedDevice") { deviceId: String ->
       PairingManager.removePaired(context(), deviceId)
+    }
+
+    // Spike 5 + roots binding (spec 35, 25.2, 18). Authenticated control calls to the ONE
+    // paired desktop, then a resumable tus upload driven natively. The bearer token stays
+    // native (spec 30); JS only names a folder/destination and observes progress.
+
+    // The desktop-approved destinations this phone may bind (spec 5.1 step 10).
+    AsyncFunction("listAvailableDestinations") {
+      ControlClient.forPairedDesktop(context())?.listAvailableDestinations()
+        ?: mapOf("ok" to false, "reason" to "not_paired")
+    }
+
+    // Bind a phone root (fresh id) to a desktop mapping + the two independent policies
+    // (spec 6.1). Returns the generated rootId so the upload step can address it.
+    AsyncFunction("registerRoot") {
+      mappingId: String, displayName: String, retention: String, deletion: String ->
+      val control = ControlClient.forPairedDesktop(context())
+      if (control == null) {
+        mapOf("ok" to false, "reason" to "not_paired")
+      } else {
+        control.registerRoot(UUID.randomUUID().toString(), mappingId, displayName, retention, deletion)
+      }
+    }
+
+    // Start a resumable upload of one file (spec 18). Returns immediately; JS polls
+    // getUploadStatus (pull model). One upload at a time (spec 18.3).
+    AsyncFunction("startUpload") {
+      rootId: String,
+      documentUri: String,
+      relativePath: String,
+      sizeBytes: Double,
+      mimeType: String?,
+      modifiedAtMs: Double? ->
+      UploadManager.start(
+        context(),
+        rootId,
+        UUID.randomUUID().toString(),
+        documentUri,
+        relativePath,
+        sizeBytes.toLong(),
+        mimeType,
+        modifiedAtMs?.toLong(),
+      )
+    }
+
+    AsyncFunction("getUploadStatus") {
+      UploadManager.snapshot()
+    }
+
+    AsyncFunction("cancelUpload") {
+      UploadManager.cancel()
+      Unit // definite Unit return (a bare cancel() infers Unit? via the object call)
     }
 
     // Release the multicast lock + discovery listener when the module is torn down.

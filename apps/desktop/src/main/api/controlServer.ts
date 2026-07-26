@@ -12,6 +12,7 @@ import {
   prepareUploadResponseSchema,
   rootRegisterRequestSchema,
   rootRegisterResponseSchema,
+  rootsAvailableResponseSchema,
   syncStatusResponseSchema,
   uuidSchema,
 } from '@foldersync/contracts';
@@ -222,6 +223,43 @@ export function createControlServer(context: ControlServerContext): FastifyInsta
         protocolVersion: PROTOCOL_VERSION,
       }),
     );
+  });
+
+  // GET /v1/roots/available (spec 5.1 step 10): the desktop-approved destinations this
+  // device may bind — its own mappings that no phone root is bound to yet ("Waiting for a
+  // phone folder" in the desktop UI). The phone shows these in its Add-folder picker and
+  // registers against a mappingId. An absolute destination path is never sent (spec 30);
+  // an unreadable volume is reported unavailable rather than failing the whole list.
+  app.get(ENDPOINTS.rootsAvailable, async (request) => {
+    const device = request.pairedDevice;
+    if (device === null) {
+      throw new ApiError('unauthorised', 'Not authenticated', { httpStatus: 401 });
+    }
+    const unbound = repositories.roots
+      .listByDevice(device.phoneDeviceId)
+      .filter((mapping) => mapping.phoneRootId === null);
+
+    const destinations = await Promise.all(
+      unbound.map(async (mapping) => {
+        try {
+          return {
+            mappingId: mapping.mappingId,
+            displayName: mapping.displayName,
+            destinationAvailable: true,
+            freeBytes: await freeSpace(mapping.destinationRoot),
+          };
+        } catch {
+          return {
+            mappingId: mapping.mappingId,
+            displayName: mapping.displayName,
+            destinationAvailable: false,
+            freeBytes: null,
+          };
+        }
+      }),
+    );
+
+    return rootsAvailableResponseSchema.parse({ destinations });
   });
 
   // POST /v1/roots/register (spec 25.2): binds a phone root to a desktop-approved

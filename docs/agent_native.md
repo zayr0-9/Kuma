@@ -79,14 +79,32 @@ fixtures in `packages/test-fixtures` (see [`agent_protocol.md`](agent_protocol.m
   [spike-3](architecture-decisions/spike-3-mdns-discovery.md),
   [spike-4](architecture-decisions/spike-4-pinned-tls.md). In-app camera QR scanning is
   deferred to the Phase-1 pairing UI (paste the QR string for the spike).
-- **Build status:** spikes 1 + 2 compiled green on EAS and passed on-device. Spikes 3 + 4
-  are written but the Kotlin has never compiled here (no Android toolchain, spec 32.1) —
-  the next EAS build is their first compile; record their pass conditions on the Samsung.
-- Spike 5 (tus direct URI upload, spec 35) lands here next. Then the real scan
-  engine + Room DB (spec 16, 17) turn spike 1's traversal and spike 2's tick into
-  persisted `file_entry`/queue state, and the service's real work (discovery loop,
-  scan, upload, cleanup — spec 14.1) replaces the tick. The discovery + pinned-TLS
-  clients here become that engine's building blocks.
+- **Spike 5 (tus direct URI upload) + roots binding implemented** — `UploadEngine.kt`
+  streams a SAF `content://` URI over resumable tus using the **pure-Java
+  `io.tus.java.client:tus-java-client:0.5.0`** (NOT `tus-android-client` — its stale
+  support-lib deps risk an AndroidX clash on EAS): `UriTusUpload` opens via
+  `ContentResolver` (no cache copy, size from a file descriptor — spec 18.1);
+  `PinnedTusClient` overrides `prepareConnection` to pin TLS on every connection (never
+  trust-all — spec 18.2); `SharedPrefsTusUrlStore` persists the upload URL so resume
+  survives a process kill; `UploadManager` drives ONE upload (spec 18.3) on a worker
+  thread with a pull-model status snapshot (prepare → tus → poll commit, spec 18.5).
+  `ControlClient.kt` makes the authenticated control calls (pinned OkHttp + Bearer from
+  `TokenVault` + protocol/request-id headers): `listAvailableDestinations`, `registerRoot`,
+  `prepareUpload`, `getPrepareStatus`; `PinnedTls.kt` refactored to share one `PinnedSsl`
+  across OkHttp and the tus `HttpsURLConnection`. `build.gradle` gained the tus dep. Needs
+  the desktop's new `GET /v1/roots/available` (lists this device's unbound mappings so the
+  phone can bind). Design + on-device checklist:
+  [spike-5](architecture-decisions/spike-5-tus-upload.md).
+- **Build status:** spikes 1-4 compiled green on EAS and are **device-verified** (Samsung
+  SM-S948B — SAF, service, discovery, pairing all pass). Spike 5 + roots binding is written
+  but the Kotlin has never compiled here (no Android toolchain, spec 32.1) — the next EAS
+  build is its first compile; record the pass conditions on the Samsung.
+- Next: the real scan engine + Room DB (spec 16, 17) turn spike 1's traversal and spike 2's
+  tick into persisted `file_entry`/`transfer_job` state (the upload state currently lives in
+  memory + the tus URL store), and the service's real work (discovery loop, scan, upload,
+  cleanup — spec 14.1) replaces the tick and drives `UploadManager`. The discovery,
+  pinned-TLS and tus clients here are that engine's building blocks. **Room + KSP is
+  intentionally its own branch** so a failed annotation-processor build isolates one concern.
 
 ## Update this file when
 

@@ -104,6 +104,45 @@ export interface PairedDevice {
   pairedAt: string;
 }
 
+/** The two independent per-root policies (spec 6.1); string-mirrored from @foldersync/contracts. */
+export type PhoneRetentionPolicy = 'keep_on_phone' | 'delete_after_verified_backup';
+export type DesktopDeletionPolicy = 'preserve_desktop_copy' | 'mirror_user_deletions';
+
+/** A desktop-approved destination this phone may bind (GET /v1/roots/available, spec 5.1). */
+export interface AvailableDestination {
+  mappingId: string;
+  displayName: string;
+  destinationAvailable: boolean;
+  freeBytes: number | null;
+}
+
+/** Outcome of listing bindable destinations. `reason` carries the structured error code. */
+export type ListDestinationsResult =
+  { ok: true; destinations: AvailableDestination[] } | { ok: false; reason: string };
+
+/** Outcome of binding a phone root to a destination (POST /v1/roots/register). */
+export type RegisterRootResult =
+  { ok: true; rootId: string; mappingId: string } | { ok: false; reason: string };
+
+/** Acknowledgement that a background upload started (or why it could not). */
+export type StartUploadResult =
+  { started: true; fileEntryId: string } | { started: false; reason: string };
+
+/**
+ * Pull-model snapshot of the single active upload (spec 18.3). `state` walks
+ * preparing → uploading → verifying → committed, or skipped (desktop already had it) /
+ * failed (see `reason`). Bytes are numbers so RN can render a progress bar.
+ */
+export interface UploadStatus {
+  state: 'idle' | 'preparing' | 'uploading' | 'verifying' | 'committed' | 'skipped' | 'failed';
+  bytesUploaded: number;
+  expectedSize: number;
+  prepareId: string | null;
+  remoteVersionId: string | null;
+  fileName: string | null;
+  reason: string | null;
+}
+
 export interface FolderSyncNativeModule {
   ping(): string;
 
@@ -131,6 +170,26 @@ export interface FolderSyncNativeModule {
   startPairingFromQr(payload: string): Promise<PairingResult>;
   listPairedDevices(): Promise<PairedDevice[]>;
   removePairedDevice(deviceId: string): Promise<void>;
+
+  // Roots binding + spike 5 upload (spec 35, 25.2, 18). Authenticated control calls to the
+  // paired desktop and a resumable tus upload; the bearer token never crosses to JS.
+  listAvailableDestinations(): Promise<ListDestinationsResult>;
+  registerRoot(
+    mappingId: string,
+    displayName: string,
+    retention: PhoneRetentionPolicy,
+    deletion: DesktopDeletionPolicy,
+  ): Promise<RegisterRootResult>;
+  startUpload(
+    rootId: string,
+    documentUri: string,
+    relativePath: string,
+    sizeBytes: number,
+    mimeType: string | null,
+    modifiedAtMs: number | null,
+  ): Promise<StartUploadResult>;
+  getUploadStatus(): Promise<UploadStatus>;
+  cancelUpload(): Promise<void>;
 }
 
 // null when the running dev client was built before this module existed —

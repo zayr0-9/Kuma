@@ -6,7 +6,9 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
+import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
@@ -44,19 +46,29 @@ class SpkiPinningTrustManager(expectedPinBase64Url: String) : X509TrustManager {
   override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
 }
 
-// A client that trusts EXACTLY the pinned key. Hostname verification is bypassed on purpose
-// and this is NOT trust-all: the trust decision is the SPKI pin above, so an attacker
-// spoofing the same host:port cannot present a certificate with the pinned key without the
-// desktop's private key. The self-signed cert is CN=FolderSync <uuid> with no IP SAN, so a
-// name check would always fail; returning true only drops that redundant check once the key
-// is pinned. (Weakening the trust manager would make this a hole — keep the two coupled.)
+// The pinned trust materials, built once from a QR pin and shared by BOTH transports that
+// talk to the desktop: OkHttp (the control-protocol JSON calls) and HttpsURLConnection (the
+// tus byte upload, spec 18.2). One trust decision — the SPKI pin — for every connection.
+class PinnedSsl(expectedPinBase64Url: String) {
+  val trustManager: X509TrustManager = SpkiPinningTrustManager(expectedPinBase64Url)
+  val socketFactory: SSLSocketFactory =
+    SSLContext.getInstance("TLS").apply {
+      init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
+    }.socketFactory
+}
+
+// Hostname verification is bypassed on purpose and this is NOT trust-all: the trust decision
+// is the SPKI pin above, so an attacker spoofing the same host:port cannot present a
+// certificate with the pinned key without the desktop's private key. The self-signed cert is
+// CN=FolderSync <uuid> with no IP SAN, so a name check would always fail; returning true only
+// drops that redundant check once the key is pinned. Keep this coupled to the pinned trust
+// manager — weakening either half opens a hole. Shared by the OkHttp and tus paths alike.
+val ALLOW_PINNED_HOSTNAME = HostnameVerifier { _, _ -> true }
+
 fun pinnedHttpClient(expectedPinBase64Url: String): OkHttpClient {
-  val trustManager = SpkiPinningTrustManager(expectedPinBase64Url)
-  val sslContext = SSLContext.getInstance("TLS").apply {
-    init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
-  }
+  val ssl = PinnedSsl(expectedPinBase64Url)
   return OkHttpClient.Builder()
-    .sslSocketFactory(sslContext.socketFactory, trustManager)
-    .hostnameVerifier { _, _ -> true }
+    .sslSocketFactory(ssl.socketFactory, ssl.trustManager)
+    .hostnameVerifier(ALLOW_PINNED_HOSTNAME)
     .build()
 }
