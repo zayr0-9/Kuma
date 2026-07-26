@@ -23,6 +23,37 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-26T11:52+0100 — feat/retention-cleanup — Retention cleanup: delete-after-verified-backup (spec 19)
+
+- **Done:** the phone now frees its own space. `CleanupEngine.kt` runs after the transfer drain in
+  `SyncEngine.runSync`, for `delete_after_verified_backup` roots only, following the spec-19.1
+  ordering per file: re-query metadata just before deleting (19.4 — changed ⇒ cancel + re-upload),
+  re-read the source and compute SHA-256 **independently** of the resumable upload (19.2 — a resume
+  reads from an offset, so the transport digest is untrustworthy), compare to the desktop's committed
+  hash (mismatch ⇒ never delete, re-upload current bytes + log), mark `retention_cleanup_expected`
+  **before** `DocumentsContract.deleteDocument`, then record `cleaned`; a failed delete parks the
+  file `cleanup_failed` (19.3 — surfaced, retryable via `retryCleanup`, never re-uploaded). Retention
+  deletions **never propagate to the desktop**: `SyncStore.evaluateMissing` short-circuits any
+  `retention_cleanup_expected` row to `cleaned` (also recovers a crash after delete but before
+  recording success), and `isCandidate` keys on `remoteVersionId` so a `cleanup_failed` file is never
+  re-uploaded merely for leaving the backed-up state. **No Room schema change** (the column already
+  existed; new states are string values; counts are `COUNT` queries) → DB version stays 1, no
+  migration. Module surface gained `cleanedCount`/`cleanupFailedCount` per root + `retryCleanup`;
+  Folders shows "freed from phone" + a Retry affordance. Desktop unchanged — it already returns its
+  hex `sha256`, and retention cleanup is phone-only by spec.
+- **Files:** `CleanupEngine.kt` (new), `SyncEngine.kt`, `db/SyncStore.kt`, `db/SyncDaos.kt`,
+  `FolderSyncModule.kt`, `modules/foldersync-native/src/index.ts`, `apps/mobile/src/native/engine.ts`,
+  `apps/mobile/app/folders.tsx`.
+- **Build:** compiles on EAS (build `a6be29e3`, KSP2/Room 2.7). Awaits device verification of the
+  verify-then-delete happy path + the failed-delete retry path.
+- **Gates:** `pnpm -r typecheck` + `eslint` clean across all 6 projects; contracts 72 + desktop 190
+  tests green (unchanged — phone-only); prettier last.
+- **PR:** `feat/retention-cleanup` off main — open + squash-merge.
+- **Docs updated:** this record, `agent_native.md`.
+- **Follow-ups:** device-verify retention cleanup; `deletion_event` propagation of user deletions to
+  the desktop trash (`mirror_user_deletions`, spec 19) still deferred; auto-start service from
+  Folders; batch Room writes for very large first scans; not yet stress-tested on a large folder.
+
 ### 2026-07-26T11:05+0100 — feat/phone-engine — Real phone engine: Room + scan + upload + Folders UI (spec 16-18, 5)
 
 - **Done:** the spike transport is now the durable phone engine, and a bound destination is
@@ -588,142 +619,3 @@ data:` so the data-URL QR displays; `backend.ts` now exposes `displayName`. 6 ne
   periodic (not just startup) staging GC, a hash-worker pool, and a packaged-app launch
   driving a real commit to close the worker verification. `controlServer.ts` is now
   ~575 lines — split into `api/routes/*` registrars in the next slice that touches it.
-
-### 2026-07-25T11:48+0100 — feature/phase1-main-wiring — Backend wired into Electron main + worker-thread hashing (spec 20.1/20.2/22.3)
-
-- **Done:** the tested-but-unwired backend now runs. `src/main/backend.ts`
-  (`startBackend`) assembles it independently of Electron — opens the DB, loads/
-  persists the TLS identity + writes its `desktop_identity` summary row, builds the
-  commit coordinator, serves the HTTPS control server, starts DNS-SD advertising
-  (skippable in tests), and runs startup staging GC (new `files.listActivePrepares`
-  → `garbageCollectStaging` per destination). `main/index.ts` stays the only
-  electron-aware file: `startBackend` on `whenReady`, clean `close` on `will-quit`.
-  **Worker-thread hashing landed for real** (spec 20.2): `storage/hashWorker.ts`
-  streams SHA-256, `storage/hash.ts` offloads to it. Key finding: electron-vite's
-  Node build does **not** apply Vite's browser-worker transform to
-  `new Worker(new URL(...))` — it left the literal `./hashWorker.ts` in the bundle
-  with no chunk emitted (would break the packaged app). Fixed by emitting the worker
-  as a second `rollupOptions.input` (`out/main/hashWorker.js`) and resolving it
-  dev/prod-aware in `hash.ts` (source `.ts` under vitest/Node 26, sibling `.js` beside
-  `index.js` in the package). Setting a custom `input` drops
-  `externalizeDepsPlugin`'s external list (fastify/ciao inlined → 2.1 MB), so main now
-  externalizes via an explicit predicate (bundle only relative/absolute source). **All
-  verified by a real `pnpm build`**: worker emitted with its body, deps external,
-  index.js ~55 kB. 2 new tests (backend bootstrap over TLS + restart-reuses-identity);
-  worker hashing exercised by the existing commit tests. 132 desktop / 201 workspace
-  green; lint/typecheck/format clean.
-- **Verification boundary:** the build is verified headlessly; a full packaged-app
-  **launch** (real Electron, worker actually spawned in the packaged process) is not
-  possible headlessly and is owed — same class as the manual GUI runs the user did for
-  the blank-renderer fix. The dev/test worker path and the build emission are both
-  proven; only the packaged runtime launch is unverified.
-- **Files:** `apps/desktop/src/main/backend.ts` (new), `apps/desktop/src/main/index.ts`
-  (start/stop backend), `apps/desktop/electron.vite.config.ts` (worker input +
-  explicit main external), `apps/desktop/src/main/storage/{hash,hashWorker}.ts`
-  (worker), `apps/desktop/src/main/auth/identityStore.ts` (`identityCertificateRef`),
-  `apps/desktop/src/main/db/repositories/files.ts` (`listActivePrepares`),
-  `apps/desktop/test/backend.test.ts` (new).
-- **PR:** branch `feature/phase1-main-wiring` pushed — open + squash-merge.
-- **Docs updated:** `agent_desktop.md` (main-wiring + worker state, revised
-  externalize note), this record.
-- **Follow-ups:** next slice — `POST /v1/files/delete` (managed-trash deletion,
-  gated on `expectedRemoteVersionId`, `retention_cleanup` rejected) and
-  `GET /v1/sync/status`. Then the desktop-UI slice (pairing window + QR image render
-  in main + destination-picker IPC), safeStorage key wrapping, `Upload-Length` vs
-  `expected_size`, periodic staging GC, and a packaged-app launch to close the worker
-  verification. Split `controlServer.ts` into `api/routes/*` when delete/status land.
-
-### 2026-07-25T11:20+0100 — feature/phase1-commit-on-finish — Commit on upload finish + version persistence (spec 18.5/6.5)
-
-- **Done:** the upload→visible loop is closed. `sync/commitService.ts`
-  (`commitPrepare`) resolves a finished prepare's mapping, sets `verifying`, runs the
-  spike-6 `commitStagedFile` (verify size → hash → adopt / conflict-preserve / atomic
-  replace), persists a durable version via the new
-  `files.recordCommittedVersion` (one transaction: upsert `remote_file`, supersede the
-  prior `remote_version`, insert the new immutable one), and flips the prepare to
-  `committed` — or `failed` with a wire error code (size/hash mismatch →
-  `source_changed`, path → `invalid_relative_path`, staged gone → `upload_not_found`,
-  mapping gone → `destination_unavailable`). `sync/commitCoordinator.ts` serialises
-  commits per `(rootId, relativePath)` (spec 18.5) with a per-key promise chain and is
-  driven from `onUploadFinish` **off the request path** (the tus 204 is not held for a
-  multi-GB hash; the phone polls status). The control server takes an optional
-  `commitCoordinator` (the main process supplies one; absent → uploads rest in
-  `uploaded`, the prior behaviour). Proven end to end: a real TLS tus upload →
-  finish-hook → coordinator → bytes visible at the destination with a durable version.
-  The plain `insertRemoteFile`/`insertRemoteVersion` stand-ins were replaced by
-  `recordCommittedVersion`. 15 new tests (7 service, 4 coordinator, 1 full-loop, 2 repo
-  supersede + net refactors); 130 desktop / 199 workspace green; lint/typecheck/format
-  clean.
-- **Worker-thread hashing — implemented, then deliberately reverted:** it passes on
-  Node 26 (native `.ts` worker via `new URL(..., import.meta.url)`), but its
-  production form needs electron-vite Node-worker bundling, and that can only be
-  designed/verified once the Electron main process actually imports this backend —
-  nothing does yet (`main/index.ts` imports only electron + node:path; `pnpm build`
-  bundles the window skeleton, 2 modules). Shipping a hash proven only in the test
-  runtime, with no way to verify the packaged path in this slice, is the wrong call
-  for integrity-critical hashing. It lands with the **main-wiring slice**, verified by
-  a real build. (The original `hash.ts` comment already scoped worker offload to
-  "when this is wired into the Electron main process" — consistent.)
-- **Files:** `apps/desktop/src/main/sync/{commitService,commitCoordinator}.ts` (new),
-  `apps/desktop/src/main/db/repositories/files.ts` (recordCommittedVersion replaces
-  the insert stand-ins), `apps/desktop/src/main/db/{index,repositories/index}.ts`,
-  `apps/desktop/src/main/api/{controlServer,uploadRouting}.ts` (optional
-  `commitCoordinator` wired through `onUploadFinish`),
-  `apps/desktop/test/{commitService,commitCoordinator,commitOnFinish}.test.ts` (new),
-  `apps/desktop/test/{controlServer,db}.test.ts` (seed via `recordCommittedVersion`).
-- **PR:** branch `feature/phase1-commit-on-finish` pushed — open + squash-merge.
-- **Docs updated:** `agent_desktop.md`, this record.
-- **Follow-ups:** next slice — **wire the backend into the Electron main process**
-  (open the DB, load/persist the desktop identity + summary row, start the control
-  server + DNS-SD advert, create the commit coordinator) **and land worker-thread
-  hashing there** with electron-vite worker bundling verified by a real build. Then
-  `POST /v1/files/delete`, `GET /v1/sync/status`, `Upload-Length`-vs-`expected_size`
-  enforcement, rate limiting, and the desktop-UI slice. When `controlServer.ts` grows
-  past the current ~425 lines with delete/status, split into `api/routes/*`.
-
-### 2026-07-25T11:00+0100 — feature/phase1-tus-fold — tus transport folded into the control server + per-destination staging (spec 18.4/18.5)
-
-- **Done:** tus uploads now run over the authenticated HTTPS control server.
-  `api/uploadRouting.ts` (`registerUploadRoutes`) mounts tus with the same
-  `onRequest` auth (bearer + protocol gate); the staged file is named by its
-  **prepare id** (`namingFunction` reads it from tus `Upload-Metadata` — a validated
-  uuid bound to an owned prepare, never a client path), so staging GC reconciles
-  against `upload_prepare`. Because one `@tus/server` `FileStore` binds one directory
-  but staging must live on each destination volume for the atomic rename (spec
-  22/6.5), there is **one tus server per destination staging dir**, cached and routed
-  per-request by resolving the prepare first (owned + non-terminal + unexpired, all
-  checked before `reply.hijack()` so a rejection returns the JSON error envelope:
-  `unauthorised` / `upload_not_found` / `upload_expired` / `bad_request`).
-  `onUploadCreate` → `uploading` + links tus id/location (`files.markUploading`);
-  `onUploadFinish` → `uploaded`. Verified end to end: a real resumable TLS upload
-  (chunk → HEAD-resume → chunk) lands at `<dest>/.foldersync-staging/<prepareId>`
-  and commits byte-identically via the spike-6 `commitStagedFile`. The standalone
-  `uploadServer.ts` + `uploads.test.ts` were retired (superseded). 9 new tests
-  (5 endpoint, 3 metadata unit, 1 repo) replace the 3 retired; 118 desktop / 187
-  workspace green; lint/typecheck/format clean.
-- **Design notes / deferrals (ADR `desktop-tus-per-destination-staging.md`):** the
-  per-destination `Map<stagingDir, TusServer>` is the accepted design; central
-  staging + cross-volume copy was rejected (breaks the atomic-rename guarantee), as
-  was a custom multi-root datastore (more code than caching the maintained
-  `@tus/file-store`). **Commit trigger deferred:** the finish hook only marks
-  `uploaded`; the commit slice must consume it (verify → hash → atomic rename →
-  persist `remote_file`/`remote_version` → `committed`, serialised per `(rootId,
-relativePath)` per spec 18.5) — and **worker-thread hashing** rides with it, since
-  that is the request path where large-file SHA-256 competes with the event loop.
-  Also deferred: enforcing `Upload-Length` against the prepare's `expected_size`.
-- **Files:** `apps/desktop/src/main/api/uploadRouting.ts` (new),
-  `apps/desktop/src/main/api/controlServer.ts`,
-  `apps/desktop/src/main/db/repositories/files.ts`,
-  `apps/desktop/src/main/api/uploadServer.ts` (deleted),
-  `apps/desktop/test/uploads.test.ts` (deleted),
-  `apps/desktop/test/uploadRouting.test.ts` (new), `apps/desktop/test/db.test.ts`,
-  ADR `docs/architecture-decisions/desktop-tus-per-destination-staging.md` (new) +
-  supersession note on `spike-6-desktop-atomic-commit.md`.
-- **PR:** branch `feature/phase1-tus-fold` pushed — open + squash-merge.
-- **Docs updated:** `agent_desktop.md`, two ADRs, this record.
-- **Follow-ups:** next slice — **commit-on-finish + worker-thread hashing**: drive
-  the commit pipeline from the finish hook (serialised per path), offload SHA-256 to
-  a worker thread, and persist the version rows (the real upsert-and-supersede that
-  `insertRemoteFile`/`insertRemoteVersion` stand in for). Then `POST /v1/files/delete`,
-  `GET /v1/sync/status`, rate limiting, and the desktop-UI slice. `controlServer.ts`
-  is ~420 lines — still fine, but split into `api/routes/*` when delete/status land.

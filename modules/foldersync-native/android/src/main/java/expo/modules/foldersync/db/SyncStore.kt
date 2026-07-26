@@ -14,7 +14,16 @@ object FileState {
   const val BACKED_UP = "backed_up" // committed on the desktop (remoteVersionId set)
   const val MISSING = "missing" // absent from a completed scan; confirmation in progress
   const val DELETED = "deleted" // confirmed gone from the phone (spec 17.5)
+  const val CLEANED = "cleaned" // deleted from the phone by retention after a verified backup (spec 19)
+  const val CLEANUP_FAILED = "cleanup_failed" // backed up, but its retention delete failed (spec 19.3)
   const val ERROR = "error" // its upload exhausted retries
+}
+
+// phone_retention_policy values (spec 6.1), string-mirrored from @foldersync/contracts. Only
+// DELETE_AFTER_VERIFIED_BACKUP arms the phone-side cleanup engine (spec 19).
+object RetentionPolicy {
+  const val KEEP_ON_PHONE = "keep_on_phone"
+  const val DELETE_AFTER_VERIFIED_BACKUP = "delete_after_verified_backup"
 }
 
 object JobState {
@@ -44,8 +53,15 @@ data class ObservedFile(
 // The generation + ids for the scan pass in progress (spec 17.2 step 1).
 data class ScanContext(val rootId: String, val scanRunId: String, val generation: Int)
 
-// Per-root counts the Folders UI renders (spec 5.2 "pending file count and bytes").
-data class RootAggregate(val pendingCount: Int, val pendingBytes: Long, val backedUpCount: Int)
+// Per-root counts the Folders UI renders (spec 5.2 "pending file count and bytes"). cleanedCount
+// / cleanupFailedCount surface the retention outcome for delete-eligible roots (spec 19).
+data class RootAggregate(
+  val pendingCount: Int,
+  val pendingBytes: Long,
+  val backedUpCount: Int,
+  val cleanedCount: Int,
+  val cleanupFailedCount: Int,
+)
 
 // A claimed transfer job plus the file it moves — everything the upload worker needs without a
 // second round-trip.
@@ -65,6 +81,9 @@ class SyncStore private constructor(private val db: FolderSyncDatabase) {
     // (spec 17.5).
     private const val MISSING_CONFIRM_GAP_MS = 15 * 60 * 1000L
     private const val MAX_UPLOAD_ATTEMPTS = 8
+    // How many delete-eligible files the cleanup engine claims from a root per query (spec 19).
+    // The engine loops until the root is drained; this only bounds a single fetch's memory.
+    const val CLEANUP_BATCH = 500
 
     fun get(context: Context): SyncStore = SyncStore(FolderSyncDatabase.get(context))
   }
@@ -94,6 +113,8 @@ class SyncStore private constructor(private val db: FolderSyncDatabase) {
     pendingCount = files.countPending(rootId),
     pendingBytes = files.pendingBytes(rootId),
     backedUpCount = files.countBackedUp(rootId),
+    cleanedCount = files.countCleaned(rootId),
+    cleanupFailedCount = files.countCleanupFailed(rootId),
   )
 
   // Removing a root drops all of its cached state (files, jobs, scans) in one transaction. The
@@ -180,10 +201,13 @@ class SyncStore private constructor(private val db: FolderSyncDatabase) {
     return if (isCandidate(existing, observed)) maybeEnqueue(refreshed, now) else false
   }
 
-  // Change candidate rules (spec 17.3): a backed-up file is a candidate only if its committed
-  // metadata changed; a not-yet-backed-up file is always a candidate until it commits.
+  // Change candidate rules (spec 17.3): a file that already has a committed desktop version
+  // (backed up, cleaned, or cleanup-failed) is a candidate only if its committed metadata
+  // changed; a not-yet-committed file is always a candidate until it commits. Keying on
+  // remoteVersionId — not localState == BACKED_UP — is what keeps a cleanup_failed file from
+  // being re-uploaded merely because its state is no longer 'backed_up' (spec 19.3).
   private fun isCandidate(existing: FileEntryEntity, observed: ObservedFile): Boolean {
-    if (existing.localState != FileState.BACKED_UP) return true
+    if (existing.remoteVersionId == null) return true
     if (existing.lastCommittedSize != observed.sizeBytes) return true
     // Timestamps are only reliable when both sides are present and non-zero; where a provider
     // returns unreliable times, detection degrades to path+size (spec 17.3).
@@ -259,6 +283,15 @@ class SyncStore private constructor(private val db: FolderSyncDatabase) {
   // *propagation* to the desktop (deletion_event + remote-delete job) is spec 19, deferred —
   // here we mark the phone state and log, so the confirmation machinery is exercised.
   private fun evaluateMissing(entry: FileEntryEntity, now: Long) {
+    // We removed this ourselves after a verified backup (spec 19.1): it is expected gone, not a
+    // user deletion, so it skips the two-observation rule and must never emit a remote deletion.
+    // This also recovers a crash after the delete but before recording success (spec 19.1).
+    if (entry.retentionCleanupExpected) {
+      if (entry.localState != FileState.CLEANED) {
+        files.update(entry.copy(localState = FileState.CLEANED, updatedAt = now))
+      }
+      return
+    }
     if (entry.missingConfirmationCount == 0) {
       files.update(entry.copy(missingConfirmationCount = 1, localState = FileState.MISSING, updatedAt = now))
       return
@@ -389,6 +422,60 @@ class SyncStore private constructor(private val db: FolderSyncDatabase) {
   fun listActiveTransfers(): List<TransferJobEntity> = jobs.listActive()
 
   fun listRecentTransfers(limit: Int): List<TransferJobEntity> = jobs.listRecent(limit)
+
+  // --- retention cleanup (spec 19) ---
+
+  // Files durably backed up on a delete-eligible root that still carry a desktop hash to verify
+  // against, ordered oldest-committed first. cleanup_failed rows are excluded (they retry only via
+  // retryFailedCleanups). The engine re-verifies each one before deleting the phone copy.
+  fun listCleanable(rootId: String, limit: Int = CLEANUP_BATCH): List<FileEntryEntity> =
+    files.listCleanable(rootId, limit)
+
+  // Step 5 of spec 19.1: record the intent to delete durably BEFORE deleting, so a crash between
+  // the two retries the deletion rather than silently losing it.
+  fun markCleanupExpected(fileId: String, now: Long) = files.setCleanupExpected(fileId, true, now)
+
+  // Deletion succeeded: the phone copy is gone by design (not a user deletion). 'cleaned' is
+  // terminal — evaluateMissing treats it as expected and never emits a remote deletion.
+  fun markCleaned(fileId: String, now: Long) = files.updateState(fileId, FileState.CLEANED, now)
+
+  // Deletion failed (spec 19.3): the desktop backup stays valid; mark it so the UI can surface it
+  // and permit a retry. The committed version is never re-uploaded merely because delete failed.
+  fun markCleanupFailed(fileId: String, now: Long) = files.updateState(fileId, FileState.CLEANUP_FAILED, now)
+
+  // The file changed since its committed upload, or its bytes no longer match the desktop hash
+  // (spec 19.2 / 19.4): do NOT delete. Clear the cleanup intent and queue a fresh upload so the
+  // new bytes supersede the committed version (which will then be re-verified before any delete).
+  fun enqueueReupload(fileId: String, now: Long) = db.runInTransaction(Runnable {
+    val file = files.getById(fileId)
+    if (file != null) {
+      files.update(file.copy(localState = FileState.PENDING_UPLOAD, retentionCleanupExpected = false, updatedAt = now))
+      val existingJob = jobs.getByFileEntry(fileId)
+      jobs.upsert(
+        TransferJobEntity(
+          id = existingJob?.id ?: UUID.randomUUID().toString(),
+          rootId = file.rootId,
+          fileEntryId = fileId,
+          operation = "upload",
+          state = JobState.PENDING,
+          attemptCount = 0,
+          nextAttemptAt = now,
+          tusUploadUrl = null,
+          bytesUploaded = 0,
+          expectedSize = file.sizeBytes,
+          desktopPrepareId = null,
+          lastErrorCode = null,
+          lastErrorMessage = null,
+          createdAt = existingJob?.createdAt ?: now,
+          updatedAt = now,
+        ),
+      )
+    }
+  })
+
+  // Re-arm failed cleanups on a root so the next sync pass re-verifies and retries the deletion
+  // (spec 19.3). Returns them to 'backed_up'; the committed desktop version is left untouched.
+  fun retryFailedCleanups(rootId: String, now: Long) = files.resetFailedCleanups(rootId, now)
 
   // 1s, 2s, 4s … capped at 30s — a queue-level backoff distinct from the tus in-request retry.
   private fun backoffMs(attempt: Int): Long {

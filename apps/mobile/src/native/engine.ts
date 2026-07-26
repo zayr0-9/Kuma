@@ -69,6 +69,10 @@ export function syncNow(): Promise<{ started: boolean }> {
   return requireNative().syncNow();
 }
 
+export function retryCleanup(rootId: string): Promise<{ started: boolean }> {
+  return requireNative().retryCleanup(rootId);
+}
+
 export function getTransfers(): Promise<TransfersSnapshot> {
   return requireNative().getTransfers();
 }

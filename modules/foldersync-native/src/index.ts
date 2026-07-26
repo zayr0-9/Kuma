@@ -145,6 +145,10 @@ export interface SyncRoot {
   pendingCount: number;
   pendingBytes: number;
   backedUpCount: number;
+  /** Files freed from the phone by retention cleanup after a verified backup (spec 19). */
+  cleanedCount: number;
+  /** Files backed up but whose phone-side deletion failed — retryable (spec 19.3). */
+  cleanupFailedCount: number;
 }
 
 /** The file currently being uploaded (spec 18.3, one at a time); null when the queue is idle. */
@@ -237,6 +241,8 @@ export interface FolderSyncNativeModule {
   removeRoot(rootId: string): Promise<{ ok: boolean }>;
   /** Trigger a full sync (scan enabled roots, then drain the queue); returns immediately. */
   syncNow(): Promise<{ started: boolean }>;
+  /** Retry failed retention deletions on a root, then kick a sync to re-attempt (spec 19.3). */
+  retryCleanup(rootId: string): Promise<{ started: boolean }>;
   /** Active + queued transfers for the Transfers view (spec 5.5). */
   getTransfers(): Promise<TransfersSnapshot>;
   /** Recent user-readable operational events, newest first (spec 5.5). */
