@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Play, Settings2, TriangleAlert } from 'lucide-react-native';
 import {
   getServiceStatus,
   pauseSyncService,
@@ -9,12 +10,12 @@ import {
 } from '../src/native/service.ts';
 import type { ServiceStatus } from '../src/native/service.ts';
 import { isNativeLinked } from '../src/native/module.ts';
-import { SpikeButton } from '../src/components/SpikeButton.tsx';
+import { Button, Card, Icon, Note, Screen, Text } from '../src/components/index.ts';
 
-// Spike 2 diagnostic harness (spec 35, 14): drives the foreground service and observes its
-// durable state. Status is polled (pull), not pushed — it stays correct after the JS
-// runtime is torn down and the service is restarted by the system (spec 13.3, 14.5). This
-// is a developer diagnostics screen, not a product surface.
+// Foreground-service diagnostic (spec 35 spike 2, 14): drives the service and observes its durable
+// state. Status is polled (pull), not pushed — it stays correct after the JS runtime is torn down
+// and the service is restarted by the system (spec 13.3, 14.5). A developer diagnostics screen, not
+// a product surface, but it speaks the design system: themed tokens, dark-mode aware, no raw colour.
 
 const POLL_MS = 1000;
 
@@ -72,100 +73,87 @@ export default function ServiceSpikeScreen(): ReactElement {
   const paused = status?.state === 'paused';
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Foreground service spike (spike 2)</Text>
+    <Screen>
       {!linked && (
-        <Text style={styles.warning}>
+        <Note tone="warning" icon={TriangleAlert}>
           Native module not linked — rebuild the dev client to include it.
-        </Text>
+        </Note>
       )}
-      {error !== null && <Text style={styles.warning}>{error}</Text>}
+      {error !== null && (
+        <Note tone="warning" icon={TriangleAlert}>
+          {error}
+        </Note>
+      )}
 
       <View style={styles.row}>
-        <SpikeButton
+        <Button
           label="Start"
+          icon={Play}
           onPress={() => act('Start', startSyncService)}
+          block
           disabled={!linked}
         />
-        <SpikeButton
+        <Button
           label="Pause"
+          variant="secondary"
           onPress={() => act('Pause', pauseSyncService)}
+          block
           disabled={!linked || !running}
         />
       </View>
       <View style={styles.row}>
-        <SpikeButton
+        <Button
           label="Resume"
+          variant="secondary"
           onPress={() => act('Resume', startSyncService)}
+          block
           disabled={!linked || !paused}
         />
-        <SpikeButton label="Stop" onPress={() => act('Stop', stopSyncService)} disabled={!linked} />
+        <Button
+          label="Stop"
+          variant="ghost"
+          danger
+          onPress={() => act('Stop', stopSyncService)}
+          block
+          disabled={!linked}
+        />
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Service status (polled every second)</Text>
-        <Text>
-          State: <Text style={styles.strong}>{status?.state ?? '—'}</Text>
+      <Card style={styles.cardGap}>
+        <View style={styles.noteHeader}>
+          <Icon icon={Settings2} size={16} />
+          <Text variant="bodyStrong">Service status (polled every second)</Text>
+        </View>
+        <Text variant="body">
+          State: <Text variant="bodyStrong">{status?.state ?? '—'}</Text>
         </Text>
-        <Text>Steps done: {status?.ticks ?? 0}</Text>
-        <Text>Last update: {status ? agoLabel(status.updatedAtMs) : '—'}</Text>
-      </View>
+        <Text variant="body">Steps done: {status?.ticks ?? 0}</Text>
+        <Text variant="body">Last update: {status ? agoLabel(status.updatedAtMs) : '—'}</Text>
+      </Card>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Manual checks (spec 35 spike 2)</Text>
+      <Card style={styles.cardGap}>
+        <Text variant="bodyStrong">Manual checks (spec 35 spike 2)</Text>
         {CHECKLIST.map((item, index) => (
-          <Text key={index} style={styles.checkItem}>
+          <Text key={index} variant="caption" tone="muted">
             {index + 1}. {item}
           </Text>
         ))}
-      </View>
+      </Card>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Samsung battery note (spec 14.8)</Text>
-        <Text style={styles.muted}>
+      <Card tone="sunken" style={styles.cardGap}>
+        <Text variant="bodyStrong">Samsung battery note (spec 14.8)</Text>
+        <Text variant="caption" tone="muted">
           If steps stop while the app is backgrounded or swiped away, an OEM battery manager likely
           killed the service. On the Samsung: Settings → Apps → FolderSync → Battery → Unrestricted.
           Record the exact behaviour — it drives the battery-guidance screen.
         </Text>
-      </View>
-    </ScrollView>
+      </Card>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#f3f4f6',
-    borderRadius: 8,
-    gap: 4,
-    padding: 12,
-  },
-  cardTitle: {
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  checkItem: {
-    fontSize: 13,
-  },
-  container: {
-    gap: 12,
-    padding: 16,
-  },
-  muted: {
-    color: '#6b7280',
-    fontSize: 13,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  strong: {
-    fontWeight: '600',
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '600',
-  },
-  warning: {
-    color: '#92400e',
-  },
+  cardGap: { gap: 4 },
+  noteHeader: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  row: { flexDirection: 'row', gap: 8 },
 });

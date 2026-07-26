@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react';
+import { Fragment, useCallback, useState } from 'react';
 import type { ReactElement } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
+import { Trash2, TriangleAlert } from 'lucide-react-native';
 import {
   checkAccess,
   deleteDocument,
@@ -10,11 +11,12 @@ import {
   traverseTree,
 } from '../src/native/saf.ts';
 import type { PersistedPermission, TraversalResult, TraversedFile } from '../src/native/saf.ts';
-import { SpikeButton } from '../src/components/SpikeButton.tsx';
+import { Button, Card, Divider, Note, Screen, Text } from '../src/components/index.ts';
 
-// Spike 1 diagnostic harness (spec 35): exercises the SAF surface on the physical device.
-// This is a developer diagnostics screen, not a product surface — raw counts and absolute
-// values are intentional here (agent_design §4). The real folder/scan UI arrives later.
+// SAF access diagnostic (spec 35 spike 1): exercises the SAF surface on the physical device.
+// A developer diagnostics screen, not a product surface — so raw counts, byte totals and the
+// absolute tree URI are shown on purpose (agent_design §4), but the screen still speaks the
+// design system: themed tokens, dark-mode aware, no hard-coded colour.
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -133,171 +135,155 @@ export default function SafSpikeScreen(): ReactElement {
     [run, append],
   );
 
+  const pending = busy !== null;
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>SAF spike (spike 1)</Text>
+    <Screen>
       {!linked && (
-        <Text style={styles.warning}>
+        <Note tone="warning" icon={TriangleAlert}>
           Native module not linked — rebuild the dev client to include it.
+        </Note>
+      )}
+
+      <View style={styles.row}>
+        <Button label="Pick folder" onPress={onPick} block disabled={!linked || pending} />
+        <Button
+          label="List grants"
+          variant="secondary"
+          onPress={onListGrants}
+          block
+          disabled={!linked || pending}
+        />
+      </View>
+      <View style={styles.row}>
+        <Button
+          label="Check access"
+          variant="secondary"
+          onPress={onCheckAccess}
+          block
+          disabled={!linked || pending || treeUri === null}
+        />
+        <Button
+          label="Traverse"
+          variant="secondary"
+          onPress={onTraverse}
+          block
+          disabled={!linked || pending || treeUri === null}
+        />
+      </View>
+
+      {busy !== null && (
+        <Text variant="caption" tone="muted">
+          {busy}…
         </Text>
       )}
 
-      <View style={styles.row}>
-        <SpikeButton label="Pick folder" onPress={onPick} disabled={!linked || busy !== null} />
-        <SpikeButton
-          label="List grants"
-          onPress={onListGrants}
-          disabled={!linked || busy !== null}
-        />
-      </View>
-      <View style={styles.row}>
-        <SpikeButton
-          label="Check access"
-          onPress={onCheckAccess}
-          disabled={!linked || busy !== null || treeUri === null}
-        />
-        <SpikeButton
-          label="Traverse"
-          onPress={onTraverse}
-          disabled={!linked || busy !== null || treeUri === null}
-        />
-      </View>
-
-      {busy !== null && <Text style={styles.muted}>{busy}…</Text>}
-
       {treeUri !== null && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Selected folder</Text>
-          <Text style={styles.strong}>{treeName}</Text>
-          <Text style={styles.mono}>{treeUri}</Text>
-        </View>
+        <Card style={styles.cardGap}>
+          <Text variant="bodyStrong">Selected folder</Text>
+          <Text variant="body">{treeName}</Text>
+          <Text variant="caption" tone="subtle" style={styles.mono}>
+            {treeUri}
+          </Text>
+        </Card>
       )}
 
       {result !== null && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Traversal</Text>
-          <Text>Files: {result.fileCount}</Text>
-          <Text>Directories: {result.dirCount}</Text>
-          <Text>Total size: {formatBytes(result.totalBytes)}</Text>
-          <Text>Elapsed: {Math.round(result.elapsedMs)} ms</Text>
-          <Text>Unreadable dirs: {result.unreadableDirs}</Text>
-          <Text>Skipped entries: {result.skippedEntries}</Text>
+        <Card style={styles.cardGap}>
+          <Text variant="bodyStrong">Traversal</Text>
+          <Text variant="body">Files: {result.fileCount}</Text>
+          <Text variant="body">Directories: {result.dirCount}</Text>
+          <Text variant="body">Total size: {formatBytes(result.totalBytes)}</Text>
+          <Text variant="body">Elapsed: {Math.round(result.elapsedMs)} ms</Text>
+          <Text variant="body">Unreadable dirs: {result.unreadableDirs}</Text>
+          <Text variant="body">Skipped entries: {result.skippedEntries}</Text>
           {result.sampleTruncated && (
-            <Text style={styles.muted}>Showing first {sample.length} files.</Text>
+            <Text variant="caption" tone="muted">
+              Showing first {sample.length} files.
+            </Text>
           )}
-        </View>
+        </Card>
       )}
 
       {sample.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>
-            Sample files (tap Delete to test controlled deletion)
-          </Text>
-          {sample.map((file) => (
-            <View key={file.documentId} style={styles.fileRow}>
-              <View style={styles.fileInfo}>
-                <Text style={styles.strong} numberOfLines={1}>
-                  {file.relativePath}
-                </Text>
-                <Text style={styles.muted}>{formatBytes(file.sizeBytes)}</Text>
+        <Card style={styles.cardGap}>
+          <Text variant="bodyStrong">Sample files (tap Delete to test controlled deletion)</Text>
+          {sample.map((file, index) => (
+            <Fragment key={file.documentId}>
+              {index > 0 && <Divider />}
+              <View style={styles.itemRow}>
+                <View style={styles.itemInfo}>
+                  <Text variant="body" numberOfLines={1}>
+                    {file.relativePath}
+                  </Text>
+                  <Text variant="caption" tone="muted">
+                    {formatBytes(file.sizeBytes)}
+                  </Text>
+                </View>
+                <Button
+                  label="Delete"
+                  icon={Trash2}
+                  variant="ghost"
+                  danger
+                  onPress={() => onDelete(file)}
+                  disabled={pending}
+                />
               </View>
-              <SpikeButton label="Delete" onPress={() => onDelete(file)} disabled={busy !== null} />
-            </View>
+            </Fragment>
           ))}
-        </View>
+        </Card>
       )}
 
       {grants !== null && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Persisted grants ({grants.length})</Text>
+        <Card style={styles.cardGap}>
+          <Text variant="bodyStrong">Persisted grants ({grants.length})</Text>
           {grants.length === 0 ? (
-            <Text style={styles.muted}>None yet.</Text>
+            <Text variant="caption" tone="muted">
+              None yet.
+            </Text>
           ) : (
-            grants.map((grant) => (
-              <View key={grant.uri} style={styles.grantRow}>
-                <Text style={styles.mono} numberOfLines={2}>
-                  {grant.uri}
-                </Text>
-                <Text style={styles.muted}>
-                  read={String(grant.readable)} write={String(grant.writable)}
-                </Text>
-              </View>
+            grants.map((grant, index) => (
+              <Fragment key={grant.uri}>
+                {index > 0 && <Divider />}
+                <View style={styles.grantRow}>
+                  <Text variant="caption" tone="subtle" numberOfLines={2} style={styles.mono}>
+                    {grant.uri}
+                  </Text>
+                  <Text variant="caption" tone="muted">
+                    read={String(grant.readable)} write={String(grant.writable)}
+                  </Text>
+                </View>
+              </Fragment>
             ))
           )}
-        </View>
+        </Card>
       )}
 
       {log.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Log</Text>
+        <Card tone="sunken" style={styles.cardGap}>
+          <Text variant="bodyStrong">Log</Text>
           {log.map((line, index) => (
-            <Text key={`${index}-${line}`} style={styles.logLine}>
+            <Text key={`${index}-${line}`} variant="caption" tone="muted" style={styles.mono}>
               {line}
             </Text>
           ))}
-        </View>
+        </Card>
       )}
-    </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#f3f4f6',
-    borderRadius: 8,
-    gap: 4,
-    padding: 12,
-  },
-  cardTitle: {
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  container: {
-    gap: 12,
-    padding: 16,
-  },
-  fileInfo: {
-    flexShrink: 1,
-    gap: 2,
-  },
-  fileRow: {
+  cardGap: { gap: 4 },
+  grantRow: { gap: 2, paddingVertical: 6 },
+  itemInfo: { flexShrink: 1, gap: 2 },
+  itemRow: {
     alignItems: 'center',
-    borderTopColor: '#e5e7eb',
-    borderTopWidth: 1,
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'space-between',
     paddingVertical: 6,
   },
-  grantRow: {
-    borderTopColor: '#e5e7eb',
-    borderTopWidth: 1,
-    gap: 2,
-    paddingVertical: 6,
-  },
-  logLine: {
-    fontSize: 12,
-  },
-  mono: {
-    fontFamily: 'monospace',
-    fontSize: 12,
-  },
-  muted: {
-    color: '#6b7280',
-    fontSize: 12,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  strong: {
-    fontWeight: '600',
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '600',
-  },
-  warning: {
-    color: '#92400e',
-  },
+  mono: { fontFamily: 'monospace' },
+  row: { flexDirection: 'row', gap: 8 },
 });

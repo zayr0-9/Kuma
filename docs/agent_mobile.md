@@ -75,12 +75,20 @@ boundary), 32.2 (EAS workflow). UI changes also require
   `GestureHandlerRootView` wrap in `app/_layout.tsx` (+ the `gallery` Stack screen). **Needs a new
   EAS build** (new native modules + the Kotlin gallery surface). Verified headlessly so far:
   `expo-doctor` 20/20 and a clean `expo export` (the worklet transform + gesture-handler bundle).
-- **Spike diagnostic harnesses** (developer diagnostics screens with intentional raw/absolute
-  values per agent_design §4 — NOT product surfaces, so the §5 parity checklist does not apply):
+- **Diagnostic harnesses** (developer diagnostics screens with intentional raw/absolute values per
+  agent_design §4 — NOT product surfaces, so the §5 parity checklist does not apply):
   `app/spike-saf.tsx` (SAF), `app/spike-service.tsx` (foreground service), `app/spike-pairing.tsx`
-  (discovery list + pairing + paired-device list/remove). All use the shared
-  `src/components/SpikeButton.tsx` (48dp touch target). (`app/spike-upload.tsx` was retired — its
-  flow is now the Folders/Transfers screens.)
+  (discovery list + pairing + paired-device list/remove). These are now **rebuilt on the design
+  system** — they build only from `src/components/` primitives (`Screen`, `Card`, `Button`, `Text`,
+  `Icon`, `Divider`, `Note`) and the theme tokens, so they follow OS light/dark and press with the
+  elevation sink (agent_design §8). The old raw-RN styling with hard-coded hex, and the throwaway
+  `SpikeButton`, are gone; the nav-header titles dropped the user-facing "spike" jargon ("SAF access",
+  "Foreground service", "Pair a desktop"). (`app/spike-upload.tsx` was retired earlier — its flow is
+  now the Folders/Transfers screens.)
+- **`src/components/Note.tsx`** is a new primitive: an inline note — a sunken well with a
+  tone-coloured icon and caption — the mobile twin of the desktop `.alert`, exported from the
+  `src/components` barrel (agent_design §7.7). It carries the calm not-linked / error lines on the
+  diagnostics screens.
 - **`expo-camera` (`~57.0.3`) is used for in-app pairing-QR scanning** (`CameraView` +
   `useCameraPermissions`; config plugin + camera-permission rationale in `app.config.ts`).
   This is required, not cosmetic: the app's deep-link `scheme` is `foldersync` (app.config.ts),

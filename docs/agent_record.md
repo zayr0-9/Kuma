@@ -23,6 +23,41 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-26T18:40+0100 — fix/mobile-diagnostics-design — Diagnostics + "Pair a desktop" screens rebuilt on the design system
+
+- **Done:** the three developer diagnostics screens reached from the home screen were still raw
+  React Native with hard-coded hex, no dark mode, and an opacity-flash press — all §2/§4/§7
+  violations. Rebuilt **"Pair a desktop"** (`app/spike-pairing.tsx`), **"SAF access"**
+  (`app/spike-saf.tsx`) and **"Foreground service"** (`app/spike-service.tsx`) so they build only
+  from the design-system primitives + tokens: `Screen`/`Card`/`Button`/`Text`/`Icon`/`Divider` and a
+  new `Note`. They now follow OS light/dark, press with the elevation sink (never opacity), and land
+  one accent spark on each screen's single primary action (Pick folder / Start / Pair). The
+  intentional raw/absolute diagnostic values stay (byte totals, the absolute SAF tree URI, poll
+  counts — §4). **Pure presentational** — every native call, handler and the lazy camera gating are
+  preserved verbatim.
+  - **Retired `SpikeButton`** (hard-coded graphite fill + opacity-flash press) and rebuilt
+    `QrScanner` on the primitives (was raw hex too).
+  - **New primitive `src/components/Note.tsx`** — an inline note (sunken well + tone-coloured icon +
+    caption), the mobile twin of the desktop `.alert` (agent_design §7.7); carries the calm
+    not-linked / error lines on all three screens.
+  - Nav-header titles dropped the user-facing "spike" jargon (§3): "SAF access", "Foreground
+    service", "Pair a desktop" (matching the home-screen labels).
+- **Files:** `apps/mobile/app/{spike-pairing,spike-saf,spike-service,_layout}.tsx`,
+  `apps/mobile/src/components/{Note.tsx (new),QrScanner.tsx,index.ts}`, `SpikeButton.tsx` (deleted);
+  docs `agent_design.md` (§7.7 + §8), `agent_mobile.md`.
+- **Gates:** `pnpm -r typecheck` (6 projects), `eslint`, tests (contracts 80 + desktop 203 = 283) all
+  green; `format:check` clean (last). **No EAS build needed** — TS/React-only, no native change, so it
+  loads over Metro/Fast Refresh on the existing dev client.
+- **PR:** branch `fix/mobile-diagnostics-design` off fresh `origin/main` — to open + squash-merge
+  (independent of the still-open `feat/upload-parallelism` / `feat/thumbnail-cache` branches; no file
+  overlap).
+- **Docs updated:** `agent_design.md` (new `Note` in the §7.7 inventory + a §8 current-state bullet),
+  `agent_mobile.md` (diagnostics-harnesses bullet + the `Note` primitive).
+- **Follow-ups:** eyeball the three screens on the Samsung in both light and dark (the change is
+  visual). The desktop Pairing/Destinations panels were already design-system-compliant — no change.
+
+---
+
 ### 2026-07-26T18:01+0100 — feat/thumbnail-cache — Durable per-folder thumbnail cache + batch check + prefetch (spec 6.6/22.4)
 
 - **Done:** stopped the gallery re-stressing the desktop for thumbnails it already has. **Stacked
