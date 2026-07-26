@@ -68,6 +68,8 @@ export interface ServiceStatus {
   state: ServiceState;
   ticks: number;
   updatedAtMs: number;
+  /** Whether the user wants continuous background sync (spec 14.1); default-on, sticks. */
+  autoSyncEnabled: boolean;
 }
 
 /** A desktop discovered over DNS-SD (spec 23). host/port populated once resolved. */
@@ -206,6 +208,10 @@ export interface FolderSyncNativeModule {
   pauseSyncService(): Promise<void>;
   stopSyncService(): Promise<void>;
   getServiceStatus(): Promise<ServiceStatus>;
+  /** Turn continuous background sync on/off durably (spec 14.1); starts/stops the service. */
+  setBackgroundSyncEnabled(enabled: boolean): Promise<void>;
+  /** Start the service iff background sync is wanted and an enabled folder exists (spec 14.3). */
+  ensureBackgroundSync(): Promise<void>;
 
   // Spike 3 — DNS-SD discovery (spec 35, 23). Pull model: poll getDiscoveredDesktops.
   startDiscovery(): Promise<void>;

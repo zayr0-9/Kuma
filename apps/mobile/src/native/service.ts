@@ -22,3 +22,13 @@ export function stopSyncService(): Promise<void> {
 export function getServiceStatus(): Promise<ServiceStatus> {
   return requireNative().getServiceStatus();
 }
+
+// Turn continuous background sync on/off durably (spec 14.1); starts/stops the foreground service.
+export function setBackgroundSyncEnabled(enabled: boolean): Promise<void> {
+  return requireNative().setBackgroundSyncEnabled(enabled);
+}
+
+// Resume automatic sync on app open (spec 14.3), but only if the user wants it and has a folder.
+export function ensureBackgroundSync(): Promise<void> {
+  return requireNative().ensureBackgroundSync();
+}

@@ -202,7 +202,38 @@ class FolderSyncModule : Module() {
         "state" to prefs.getString(FolderSyncService.KEY_STATE, FolderSyncService.STATE_STOPPED),
         "ticks" to prefs.getLong(FolderSyncService.KEY_TICKS, 0L).toDouble(),
         "updatedAtMs" to prefs.getLong(FolderSyncService.KEY_UPDATED, 0L).toDouble(),
+        "autoSyncEnabled" to prefs.getBoolean(FolderSyncService.KEY_AUTO_SYNC, true),
       )
+    }
+
+    // Turn continuous background sync on/off durably (spec 14.1/14.3). Enabling starts the
+    // foreground service (and asks for the notification permission, spec 14.4) so scans + uploads
+    // run without the app open; disabling stops it. The preference sticks, so this is the switch
+    // the Folders screen binds to, distinct from per-root pause.
+    AsyncFunction("setBackgroundSyncEnabled") { enabled: Boolean ->
+      context().getSharedPreferences(FolderSyncService.PREFS, Context.MODE_PRIVATE)
+        .edit().putBoolean(FolderSyncService.KEY_AUTO_SYNC, enabled).commit()
+      if (enabled) {
+        requestPostNotificationsIfNeeded()
+        sendToService(FolderSyncService.ACTION_START)
+      } else {
+        sendToService(FolderSyncService.ACTION_STOP)
+      }
+      Unit
+    }
+
+    // Start the service iff the user wants background sync AND has at least one enabled folder.
+    // Called on app open (foreground start is the legal path, spec 14.3) so automatic sync
+    // resumes without a manual "Sync now"; idempotent and a no-op when nothing needs syncing.
+    AsyncFunction("ensureBackgroundSync") {
+      val prefs = context().getSharedPreferences(FolderSyncService.PREFS, Context.MODE_PRIVATE)
+      val wanted = prefs.getBoolean(FolderSyncService.KEY_AUTO_SYNC, true)
+      val hasRoots = SyncStore.get(context()).listEnabledRoots().isNotEmpty()
+      if (wanted && hasRoots) {
+        requestPostNotificationsIfNeeded()
+        sendToService(FolderSyncService.ACTION_START)
+      }
+      Unit
     }
 
     // Spike 3 — DNS-SD discovery (spec 35, 23). Pull model: startDiscovery accumulates
