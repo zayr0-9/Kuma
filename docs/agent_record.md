@@ -23,6 +23,43 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-26T18:01+0100 — feat/thumbnail-cache — Durable per-folder thumbnail cache + batch check + prefetch (spec 6.6/22.4)
+
+- **Done:** stopped the gallery re-stressing the desktop for thumbnails it already has. **Stacked
+  on `feat/upload-parallelism`** (disjoint code; keeps `agent_record` conflict-free).
+  - **Native (`RemoteMedia.kt`):** thumbnails now cache **durably** in
+    `filesDir/foldersync/thumbs/<rootId>/<versionId>.jpg` (was the OS-evictable `cacheDir`, which
+    forced refetches under storage pressure). New **`cachedThumbnails(rootId, versionIds)`** stats
+    the folder's cache and returns hits (version id → `file://`) with no network. A FIFO size cap
+    (`CACHE_CAP_BYTES` 128 MB, swept every 64 writes via `enforceCap`) bounds growth. Keys are
+    sanitised. **Full images stay in `cacheDir`** (large + transient). `fetchThumbnail` gained a
+    `rootId` param; new `cachedThumbnails` `AsyncFunction`.
+  - **Mobile (`app/gallery.tsx`):** thumbnail resolution hoisted to the screen — each loaded page
+    calls `cachedThumbnails` (instant hits), then prefetches only misses bounded to
+    `PREFETCH_CONCURRENCY` (4) via a queue/pump; `Thumb` is now presentational (parent passes the
+    resolved URI). `src/native/gallery.ts` + `foldersync-native` TS surface updated
+    (`CachedThumbnailsResult`, new `cachedThumbnails`, `fetchThumbnail(rootId,…)`).
+- **Files:** `modules/foldersync-native/android/.../{RemoteMedia.kt, FolderSyncModule.kt}`,
+  `modules/foldersync-native/src/index.ts`, `apps/mobile/src/native/gallery.ts`,
+  `apps/mobile/app/gallery.tsx`; docs `foldersync_implementation_spec.md` (22.4),
+  `agent_native.md`, `agent_mobile.md`.
+- **Gates:** `pnpm -r typecheck` (6 projects), eslint, `format:check` all clean.
+- **Build:** EAS dev build **`6f1213cc`** (off `feat/thumbnail-cache` HEAD, so it covers **both**
+  stacked changes) **FINISHED** — Kotlin compiled clean (pool + watcher + `RemoteMedia` cache).
+  APK: https://expo.dev/artifacts/eas/U5irCQy2nzIeT0mROFBEGmPB7kqbGissGQsO4qc_mXc.apk — install on
+  the Samsung SM-S948B (nothing else compiles the Kotlin).
+- **PR:** `feat/thumbnail-cache` — stacked on `feat/upload-parallelism` (second of two). After the
+  uploads PR merges: `git rebase --onto origin/main feat/upload-parallelism feat/thumbnail-cache`
+  → the diff becomes thumbnail-only.
+- **Docs updated:** spec 22.4, `agent_native.md`, `agent_mobile.md`.
+- **Follow-ups:** **device-test pending** on the Samsung (APK `6f1213cc`) — verify the pool shows
+  ≤3 concurrent uploads with no inter-file gap, and that re-opening a gallery paints instantly
+  from the durable cache with no desktop hit.
+  Later niceties: LRU-on-read (touch mtime on cache hit) instead of FIFO; a "clear this folder's
+  thumbnails" action now that the cache is per-root.
+
+---
+
 ### 2026-07-26T17:50+0100 — feat/upload-parallelism — Bounded upload pool + pipelined commit (spec 18.3)
 
 - **Done:** replaced the phone's sequential one-at-a-time upload drain (which uploaded one file,
@@ -50,8 +87,9 @@ Entries are ordered newest-first.
 FolderSyncModule.kt, FolderSyncService.kt}`, `modules/foldersync-native/src/index.ts`,
   `apps/mobile/app/transfers.tsx`; docs `foldersync_implementation_spec.md` (18.3 + decision
   table + §39 deferred), `agent_native.md`, `agent_mobile.md`.
-- **Gates:** `pnpm -r typecheck` clean (6 projects); eslint + `format:check` pending in this run.
-  **Kotlin compiles only on EAS** — needs a fresh dev build to device-verify the pool.
+- **Gates:** `pnpm -r typecheck` (6 projects), eslint, `format:check` all clean. Kotlin compiled
+  clean on EAS via the stacked build **`6f1213cc`** (see the thumbnail-cache entry above; that dev
+  build carries this branch's commit too).
 - **PR:** `feat/upload-parallelism` — to open + squash-merge (first of two; thumbnail-cache branch
   follows).
 - **Docs updated:** spec 18.3 / decision table / §39, `agent_native.md`, `agent_mobile.md`.

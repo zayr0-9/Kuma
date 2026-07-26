@@ -417,8 +417,14 @@ class FolderSyncModule : Module() {
         ?: mapOf("ok" to false, "reason" to "not_paired")
     }
 
-    AsyncFunction("fetchThumbnail") { fileId: String, versionId: String ->
-      RemoteMedia.fetchThumbnail(context(), fileId, versionId)
+    // Which of a folder's versions are already cached locally (no network) — the gallery renders
+    // these instantly and only fetches the rest (spec 6.6).
+    AsyncFunction("cachedThumbnails") { rootId: String, versionIds: List<String> ->
+      RemoteMedia.cachedThumbnails(context(), rootId, versionIds)
+    }
+
+    AsyncFunction("fetchThumbnail") { rootId: String, fileId: String, versionId: String ->
+      RemoteMedia.fetchThumbnail(context(), rootId, fileId, versionId)
     }
 
     AsyncFunction("fetchRemoteImage") { fileId: String, versionId: String ->

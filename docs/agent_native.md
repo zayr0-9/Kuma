@@ -160,13 +160,17 @@ fixtures in `packages/test-fixtures` (see [`agent_protocol.md`](agent_protocol.m
   browser. `ControlClient` gains `listRemoteImages(rootId, cursor, limit)` (`GET /v1/files/list`
   → JS map with `items`/`nextCursor`) and `streamGet(path, consume)` (a binary GET over the pinned
   client, body streamed to a caller-supplied sink — the raw bytes never round-trip through JS,
-  spec 30). New `RemoteMedia` object fetches thumbnails / full images into
-  `cacheDir/foldersync/{thumbs,images}` keyed by the immutable remote version id and returns
-  `file://` URIs the RN `<Image>` renders, and `download()` streams a full image straight into the
-  phone's photo library via **MediaStore** (`Pictures/FolderSync`, `IS_PENDING`-bracketed) — no
-  broad storage permission on API 29+ (spec 3.1/12). Four `AsyncFunction`s expose them
-  (`listRemoteImages` / `fetchThumbnail` / `fetchRemoteImage` / `downloadRemoteImage`); the bearer
-  token + pinned TLS stay native. Compiles only on EAS — **needs a new dev build** to run on device.
+  spec 30). New `RemoteMedia` object returns `file://` URIs the RN `<Image>` renders, and
+  `download()` streams a full image straight into the phone's photo library via **MediaStore**
+  (`Pictures/FolderSync`, `IS_PENDING`-bracketed) — no broad storage permission on API 29+ (spec
+  3.1/12). **Thumbnails are cached durably** in `filesDir/foldersync/thumbs/<rootId>/<versionId>.jpg`
+  (not the OS-evictable `cacheDir`, so a re-opened gallery never re-fetches), with a FIFO size cap
+  (`enforceCap`, swept every N writes) so it can't grow unbounded; `cachedThumbnails(rootId,
+versionIds)` stats the folder's cache and returns hits so the grid fetches only misses. Full
+  images stay in the evictable `cacheDir` (large + transient). Five `AsyncFunction`s expose these
+  (`listRemoteImages` / `cachedThumbnails` / `fetchThumbnail(rootId,…)` / `fetchRemoteImage` /
+  `downloadRemoteImage`); the bearer token + pinned TLS stay native. Compiles only on EAS —
+  **needs a new dev build** to run on device.
 - **Build status:** spikes 1-5, the **real scan→upload engine, and retention cleanup are
   device-verified** (Samsung SM-S948B) — the engine compiled clean on EAS (`2091ec4b`), whole-folder
   scan→upload works end to end, and `delete_after_verified_backup` **frees the phone copy** on device

@@ -1349,7 +1349,9 @@ Prepare records and their tus uploads must live long enough to serve the product
 
 ### 22.4 Thumbnail cache
 
-Gallery thumbnails (section 6.6) are generated on demand from the committed file using Electron's built-in `nativeImage` — no native image-library dependency — and cached in the desktop application's data directory, keyed by the immutable remote version id and the target size. The cache never lives inside a destination root, holds only derived data, and is safe to delete at any time. Formats `nativeImage` cannot decode fall back to serving the original bytes.
+**Desktop.** Gallery thumbnails (section 6.6) are generated on demand from the committed file using Electron's built-in `nativeImage` — no native image-library dependency — and cached in the desktop application's data directory, keyed by the immutable remote version id and the target size. The cache never lives inside a destination root, holds only derived data, and is safe to delete at any time. Formats `nativeImage` cannot decode fall back to serving the original bytes.
+
+**Phone.** The phone caches each fetched thumbnail **durably** (in `filesDir`, not the OS-evictable cache), keyed per folder (`rootId`) → immutable version id, so a re-opened gallery renders from disk and never re-fetches a thumbnail the phone already holds. Before fetching a page, the gallery asks the native cache which of that page's versions are already present (`cachedThumbnails`) and fetches only the misses, bounded to a few concurrent fetches; a re-backed-up file (new version id) naturally misses and refetches. A simple size cap evicts the oldest thumbnails so the cache cannot grow without bound. Full-resolution viewer images, being large and transient, stay in the OS-evictable cache.
 
 ---
 

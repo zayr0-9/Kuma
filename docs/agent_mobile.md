@@ -63,9 +63,13 @@ boundary), 32.2 (EAS workflow). UI changes also require
   grid of a folder's backed-up images (opened via **View photos** on each Folders card, routed with
   `rootId`+`name`), and a full-screen viewer with swipe paging + pinch/pan/double-tap zoom and a
   **Download** to the phone's photo library. Native calls go through `src/native/gallery.ts`
-  (`listRemoteImages` / `fetchThumbnail` / `fetchRemoteImage` / `downloadRemoteImage`); the grid and
-  viewer render only the local `file://` URIs the native module returns — no image bytes, bearer
-  token or TLS ever in JS. Adds three **native** deps — `react-native-gesture-handler`,
+  (`listRemoteImages` / `cachedThumbnails` / `fetchThumbnail` / `fetchRemoteImage` /
+  `downloadRemoteImage`); the grid and viewer render only the local `file://` URIs the native
+  module returns — no image bytes, bearer token or TLS ever in JS. **Thumbnail resolution is
+  hoisted to the screen:** each loaded page asks the durable native cache which versions are
+  already present (`cachedThumbnails`) — rendered instantly — and prefetches only the misses,
+  bounded to `PREFETCH_CONCURRENCY` (4) via a small queue/pump; `Thumb` is now presentational
+  (parent passes the resolved URI down). Adds three **native** deps — `react-native-gesture-handler`,
   `react-native-reanimated` (v4) and `react-native-worklets` (SDK-57 versions) — plus a new
   `babel.config.js` (`babel-preset-expo`, which auto-adds the reanimated worklets plugin) and a
   `GestureHandlerRootView` wrap in `app/_layout.tsx` (+ the `gallery` Stack screen). **Needs a new

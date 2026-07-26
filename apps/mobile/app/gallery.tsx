@@ -25,6 +25,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, Text } from '../src/components/index.ts';
 import { useTheme } from '../src/theme/index.ts';
 import {
+  cachedThumbnails,
   downloadRemoteImage,
   fetchRemoteImage,
   fetchThumbnail,
@@ -42,6 +43,7 @@ import {
 const PAGE_SIZE = 60;
 const COLUMNS = 3;
 const GRID_GAP = 3;
+const PREFETCH_CONCURRENCY = 4;
 
 export default function GalleryScreen(): ReactElement {
   const t = useTheme();
@@ -62,6 +64,77 @@ export default function GalleryScreen(): ReactElement {
   // Guards against overlapping page fetches (onEndReached can fire repeatedly).
   const fetching = useRef(false);
 
+  // Thumbnail resolution (spec 6.6): the desktop-generated thumbnails are cached durably on the
+  // phone, keyed per folder → version id. For each loaded page we ask the native cache which
+  // versions we already hold (rendered instantly) and fetch only the misses, bounded to a few at
+  // a time — so a re-opened gallery never re-stresses the desktop for thumbnails it already has.
+  const [thumbUri, setThumbUri] = useState<Record<string, string>>({});
+  const [thumbFailed, setThumbFailed] = useState<Record<string, boolean>>({});
+  const resolvedRef = useRef<Set<string>>(new Set());
+  const inFlightRef = useRef<Set<string>>(new Set());
+  const activeCountRef = useRef(0);
+  const queueRef = useRef<RemoteImageItem[]>([]);
+
+  const resolveHit = useCallback((versionId: string, uri: string) => {
+    resolvedRef.current.add(versionId);
+    setThumbUri((prev) => (prev[versionId] === uri ? prev : { ...prev, [versionId]: uri }));
+  }, []);
+  const resolveFail = useCallback((versionId: string) => {
+    resolvedRef.current.add(versionId);
+    setThumbFailed((prev) => (prev[versionId] === true ? prev : { ...prev, [versionId]: true }));
+  }, []);
+
+  // Drain the miss queue, keeping at most PREFETCH_CONCURRENCY native fetches in flight.
+  const pump = useCallback(() => {
+    while (activeCountRef.current < PREFETCH_CONCURRENCY && queueRef.current.length > 0) {
+      const item = queueRef.current.shift();
+      if (item === undefined) break;
+      if (resolvedRef.current.has(item.versionId) || inFlightRef.current.has(item.versionId)) {
+        continue;
+      }
+      inFlightRef.current.add(item.versionId);
+      activeCountRef.current += 1;
+      void fetchThumbnail(rootId, item.fileId, item.versionId)
+        .then((r) => {
+          if (!mounted.current) return;
+          if (r.ok) resolveHit(item.versionId, r.uri);
+          else resolveFail(item.versionId);
+        })
+        .catch(() => {
+          if (mounted.current) resolveFail(item.versionId);
+        })
+        .finally(() => {
+          inFlightRef.current.delete(item.versionId);
+          activeCountRef.current -= 1;
+          if (mounted.current) pump();
+        });
+    }
+  }, [rootId, resolveHit, resolveFail]);
+
+  // Seed cache hits for a freshly loaded page, then enqueue the misses for bounded prefetch.
+  const prefetchThumbs = useCallback(
+    async (batch: RemoteImageItem[]) => {
+      if (!linked || rootId === '' || batch.length === 0) return;
+      const wanted = batch.filter((i) => !resolvedRef.current.has(i.versionId));
+      if (wanted.length === 0) return;
+      try {
+        const cached = await cachedThumbnails(
+          rootId,
+          wanted.map((i) => i.versionId),
+        );
+        if (!mounted.current) return;
+        if (cached.ok) {
+          for (const [versionId, uri] of Object.entries(cached.uris)) resolveHit(versionId, uri);
+        }
+      } catch {
+        // Ignore — fall through and fetch everything as a miss.
+      }
+      queueRef.current.push(...wanted.filter((i) => !resolvedRef.current.has(i.versionId)));
+      pump();
+    },
+    [linked, rootId, resolveHit, pump],
+  );
+
   const loadPage = useCallback(
     async (nextCursor: string | null) => {
       if (!linked || rootId === '' || fetching.current) return;
@@ -78,6 +151,7 @@ export default function GalleryScreen(): ReactElement {
         setItems((prev) => (nextCursor === null ? result.items : [...prev, ...result.items]));
         setCursor(result.nextCursor);
         setHasMore(result.nextCursor !== null);
+        void prefetchThumbs(result.items);
       } catch {
         if (mounted.current) setError('Could not load photos.');
       } finally {
@@ -88,7 +162,7 @@ export default function GalleryScreen(): ReactElement {
         }
       }
     },
-    [linked, rootId],
+    [linked, rootId, prefetchThumbs],
   );
 
   useEffect(() => {
@@ -111,9 +185,14 @@ export default function GalleryScreen(): ReactElement {
 
   const renderItem = useCallback(
     ({ item, index }: ListRenderItemInfo<RemoteImageItem>) => (
-      <Thumb item={item} size={cellSize} onPress={() => setViewerIndex(index)} />
+      <Thumb
+        size={cellSize}
+        uri={thumbUri[item.versionId]}
+        failed={thumbFailed[item.versionId] === true}
+        onPress={() => setViewerIndex(index)}
+      />
     ),
-    [cellSize],
+    [cellSize, thumbUri, thumbFailed],
   );
 
   if (!linked) {
@@ -177,33 +256,21 @@ export default function GalleryScreen(): ReactElement {
   );
 }
 
-// A single grid cell. Fetches its thumbnail lazily (native → local file URI); shows a sunken
-// placeholder until it arrives, so a large folder never blocks on a wall of network fetches.
+// A single grid cell. Presentational: the parent resolves thumbnails (native cache hit or a
+// bounded prefetch) and passes the local `file://` URI down, so a large folder never blocks on a
+// wall of network fetches and a re-opened gallery renders instantly from the durable cache.
 function Thumb({
-  item,
   size,
+  uri,
+  failed,
   onPress,
 }: {
-  item: RemoteImageItem;
   size: number;
+  uri: string | undefined;
+  failed: boolean;
   onPress: () => void;
 }): ReactElement {
   const t = useTheme();
-  const [uri, setUri] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    void fetchThumbnail(item.fileId, item.versionId).then((r) => {
-      if (!alive) return;
-      if (r.ok) setUri(r.uri);
-      else setFailed(true);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [item.fileId, item.versionId]);
-
   return (
     <Pressable
       onPress={onPress}
@@ -212,7 +279,7 @@ function Thumb({
         pressed && styles.pressed,
       ]}
     >
-      {uri !== null ? (
+      {uri !== undefined ? (
         <Image source={{ uri }} style={styles.fill} resizeMode="cover" />
       ) : (
         <View style={styles.center}>
