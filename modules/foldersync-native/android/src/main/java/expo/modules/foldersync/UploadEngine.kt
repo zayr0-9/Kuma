@@ -80,6 +80,11 @@ class PinnedTusClient(private val socketFactory: SSLSocketFactory) : TusClient()
       connection.sslSocketFactory = socketFactory
       connection.hostnameVerifier = ALLOW_PINNED_HOSTNAME
     }
+    // Android's HttpURLConnection reuses pooled sockets; a half-closed one left by an earlier
+    // request throws "unexpected end of stream" on reuse and can poison every later tus
+    // request. Ask the server to close after each response so a stale socket is never reused.
+    // tus makes few, large requests, so keep-alive buys nothing here anyway.
+    connection.setRequestProperty("Connection", "close")
     connection.readTimeout = READ_TIMEOUT_MS
   }
 
@@ -144,7 +149,7 @@ object UploadManager {
       try {
         runUpload(app, rootId, fileEntryId, documentUri, relativePath, sizeBytes, mimeType, modifiedAtMs)
       } catch (e: Exception) {
-        fail(if (cancelRequested) "cancelled" else "error")
+        fail(if (cancelRequested) "cancelled" else "error: ${e.javaClass.simpleName}: ${e.message}")
       }
     }, "foldersync-upload")
     // Busy-check and worker assignment are one atomic step, so two starts can't race.
@@ -212,6 +217,10 @@ object UploadManager {
       "expectedSize" to fdSize.toString(),
     )
 
+    // Belt-and-suspenders with the per-request Connection: close — turn off the process-wide
+    // HttpURLConnection keep-alive pool so a poisoned socket can never be handed to tus.
+    System.setProperty("http.keepAlive", "false")
+
     val client = PinnedTusClient(control.ssl.socketFactory)
     // Honour the tus endpoint the desktop returned (spec 25.2 prepare response) rather than
     // hardcoding the path; resolved against the paired desktop's origin.
@@ -223,6 +232,9 @@ object UploadManager {
     client.connectTimeout = CONNECT_TIMEOUT_MS
 
     var attempt = 0
+    // Remember the last transport error so a failure surfaces WHY (e.g. the exception class),
+    // not a bare "network" — the reason is shown on the diagnostics screen.
+    var lastError = "network"
     while (true) {
       if (cancelRequested) return fail("cancelled")
       try {
@@ -242,11 +254,12 @@ object UploadManager {
         break
       } catch (e: ProtocolException) {
         // The server rejected the tus exchange (e.g. expired reservation) — not retryable.
-        return fail("protocol")
+        return fail("protocol: ${e.message}")
       } catch (e: IOException) {
         if (cancelRequested) return fail("cancelled")
+        lastError = "network: ${e.javaClass.simpleName}: ${e.message}"
         attempt++
-        if (attempt >= MAX_ATTEMPTS) return fail("network")
+        if (attempt >= MAX_ATTEMPTS) return fail(lastError)
         try {
           Thread.sleep(backoffMs(attempt))
         } catch (interrupted: InterruptedException) {
