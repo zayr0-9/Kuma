@@ -48,20 +48,24 @@ Entries are ordered newest-first.
   `app/folders.tsx` (persisted roots w/ per-root status; add-folder = pick → choose destination
   - policies → bind → sync; pause/resume; remove) + `app/transfers.tsx` (live progress + queue +
     history); `src/native/engine.ts` typed wrapper; spike-upload screen removed.
-- **Build:** the native engine is **compile-verified on EAS** (build `2091ec4b` FINISHED) — the
-  KSP2/Room 2.7 combo builds clean. The APK from that build + Metro loads the new JS, so **no
-  second build is needed** for the UI/desktop changes.
+- **Build + device:** the native engine compiled clean on EAS (build `2091ec4b`) and
+  **whole-folder scan→upload is now device-verified** — a picked folder scans, its files queue,
+  and they upload to `committed` end to end (the desktop `unbind` + phone `removeRoot` make a
+  destination reusable). The APK from that build + Metro loads the new JS, so no second build was
+  needed for the UI/desktop changes. Also added a **desktop-side Unbind button** on bound
+  destination cards (`DestinationsPanel` + `destinations:unbind` IPC + `unbindDestination`
+  controller + 3 tests).
 - **Gates:** `pnpm -r typecheck` + `eslint` clean across all 6 projects; contracts 72 + desktop
-  187 tests green (6 new unbind tests); prettier last.
+  190 tests green (6 unbind endpoint + 3 unbind controller); prettier last.
 - **PR:** `feat/phone-engine` off main — open + squash-merge.
 - **Docs updated:** this record, `agent_native.md`, `agent_mobile.md`, ADR
   `room-ksp-expo-module.md`.
-- **Follow-ups (NOT device-tested yet):** the first real device run of a whole-folder
-  scan→upload is the user's next test (spikes were single-file). Deferred: retention cleanup /
-  delete-after-verified-backup + `deletion_event` propagation (spec 19); auto-starting the
-  service from Folders (today the user enables the service separately for background sync);
-  batching Room writes for very large first scans; quiescence defers files <45s old to the next
-  scan.
+- **Follow-ups:** whole-folder sync works; not yet stress-tested on a large folder (batch Room
+  writes for very large first scans). Deferred: retention cleanup / delete-after-verified-backup
+  - `deletion_event` propagation (spec 19); auto-starting the service from Folders (today the
+    user enables the service separately for background sync); quiescence defers files <45s old to
+    the next scan; a desktop-initiated unbind leaves the phone's `sync_root` stale until the phone
+    also removes the folder.
 
 ### 2026-07-26T10:20+0100 — fix/desktop-stable-port + fix/mobile-tus-transport — Spike 5 PASSED on device; three fixes
 

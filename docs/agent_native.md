@@ -120,10 +120,10 @@ fixtures in `packages/test-fixtures` (see [`agent_protocol.md`](agent_protocol.m
   maps to the pinned Kotlin 2.1.20) + `applyKspJvmToolchain()`, then `androidx.room:room-runtime`
   - `ksp androidx.room:room-compiler` at **2.7.1** (first Room line with native KSP2 support;
     2.6.x is KSP1-only). Expo resolves the version but does NOT apply the plugin — the module must.
-- **Build status:** spikes 1-5 are **device-verified** (Samsung SM-S948B). The real engine is
-  **compile-verified on EAS** (build `2091ec4b` FINISHED — the KSP2/Room 2.7 combo builds clean)
-  but **not yet device-tested**: the first whole-folder scan→upload run is the next on-device
-  check (spikes were single-file). The APK from that build + Metro loads the new JS.
+- **Build status:** spikes 1-5 and the **real engine are device-verified** (Samsung SM-S948B) —
+  the engine compiled clean on EAS (build `2091ec4b`, KSP2/Room 2.7) and **whole-folder
+  scan→upload works end to end** on device (pick a folder → it scans, queues and uploads its
+  files to `committed`). Not yet stress-tested on a very large folder.
 - Next: retention cleanup / delete-after-verified-backup + `deletion_event` propagation
   (spec 19); auto-start the service from the Folders screen; batch Room writes for very large
   first scans.
