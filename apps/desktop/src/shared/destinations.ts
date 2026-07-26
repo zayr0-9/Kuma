@@ -8,6 +8,7 @@ export const IPC_CHANNELS = {
   destinationsList: 'destinations:list',
   destinationsPickFolder: 'destinations:pickFolder',
   destinationsAdd: 'destinations:add',
+  destinationsUnbind: 'destinations:unbind',
 } as const;
 
 export interface DeviceSummary {
@@ -43,3 +44,9 @@ export type AddDestinationResult =
   | { outcome: 'invalid_destination' };
 
 export type PickFolderResult = { path: string } | { cancelled: true };
+
+// Detach the phone folder from a destination (spec 5.6 "destination mappings and
+// revocation"): the mapping stays and its desktop files are untouched, but it returns to
+// "Waiting for a phone folder" and can be re-bound. Idempotent — unbinding an already-unbound
+// destination still reports `unbound`; only an unknown mapping is `not_found`.
+export type UnbindDestinationResult = { outcome: 'unbound' } | { outcome: 'not_found' };

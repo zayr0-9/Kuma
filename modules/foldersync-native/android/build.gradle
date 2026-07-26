@@ -1,5 +1,22 @@
 // Follows the create-expo-module local-module template. Verified by EAS build
 // (no Android toolchain on this machine — spec 32.1).
+
+// Room needs the KSP annotation processor. Expo resolves the KSP *version* that matches the
+// Kotlin toolchain it pins (rootProject.ext.kspVersion — 2.1.20 → 2.1.20-2.0.1 via
+// expo-modules-autolinking's KSPLookup) but does NOT put the KSP Gradle plugin on the
+// classpath, so this module does it itself. A nested buildscript adds only this subproject's
+// plugin classpath; the literal is the known-good fallback for the pinned Kotlin 2.1.20.
+buildscript {
+  repositories {
+    google()
+    mavenCentral()
+  }
+  dependencies {
+    def kspVer = rootProject.ext.has('kspVersion') ? rootProject.ext.kspVersion : '2.1.20-2.0.1'
+    classpath "com.google.devtools.ksp:symbol-processing-gradle-plugin:${kspVer}"
+  }
+}
+
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
@@ -13,6 +30,12 @@ useCoreDependencies()
 // sets compileSdk/minSdk/targetSdk from the app's root ext, with Expo defaults —
 // AGP hard-fails without compileSdk (learned from the first EAS build)
 useDefaultAndroidSdkVersions()
+
+// KSP must be applied after kotlin-android. Room's compiler runs under KSP2 (the -2.0.x
+// suffix), which Room 2.7+ supports natively — Room 2.6.x was KSP1-only, so the version
+// pairing here is load-bearing. applyKspJvmToolchain pins KSP to JDK 17 to match the module.
+apply plugin: 'com.google.devtools.ksp'
+applyKspJvmToolchain()
 
 android {
   namespace 'expo.modules.foldersync'
@@ -35,4 +58,11 @@ dependencies {
   // talks over java.net.HttpsURLConnection, which PinnedTusClient pins per connection; the
   // Android content:// streaming is added in UriTusUpload. (spec 18.1/18.2)
   implementation 'io.tus.java.client:tus-java-client:0.5.0'
+
+  // Room — the mobile source of truth (spec 16). DAOs are blocking (no coroutines/Flow): the
+  // scan/upload engine already runs on dedicated worker threads, so a suspend surface would
+  // add a dependency for no gain. room-compiler runs via KSP (declared above). 2.7.x is the
+  // first Room line with native KSP2 support.
+  implementation 'androidx.room:room-runtime:2.7.1'
+  ksp 'androidx.room:room-compiler:2.7.1'
 }

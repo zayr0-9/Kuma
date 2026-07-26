@@ -8,6 +8,10 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
+import expo.modules.foldersync.db.SyncEventEntity
+import expo.modules.foldersync.db.SyncRootEntity
+import expo.modules.foldersync.db.SyncStore
+import expo.modules.foldersync.db.TransferJobEntity
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -231,9 +235,10 @@ class FolderSyncModule : Module() {
       PairingManager.removePaired(context(), deviceId)
     }
 
-    // Spike 5 + roots binding (spec 35, 25.2, 18). Authenticated control calls to the ONE
-    // paired desktop, then a resumable tus upload driven natively. The bearer token stays
-    // native (spec 30); JS only names a folder/destination and observes progress.
+    // Roots binding + the real scan/upload engine (spec 16-18). Authenticated control calls to
+    // the ONE paired desktop; the durable engine (Room + SyncEngine) then scans a bound folder
+    // and uploads its files over resumable tus. The bearer token stays native (spec 30); JS
+    // names folders/destinations, triggers a sync and observes state via pull-model snapshots.
 
     // The desktop-approved destinations this phone may bind (spec 5.1 step 10).
     AsyncFunction("listAvailableDestinations") {
@@ -241,46 +246,119 @@ class FolderSyncModule : Module() {
         ?: mapOf("ok" to false, "reason" to "not_paired")
     }
 
-    // Bind a phone root (fresh id) to a desktop mapping + the two independent policies
-    // (spec 6.1). Returns the generated rootId so the upload step can address it.
-    AsyncFunction("registerRoot") {
-      mappingId: String, displayName: String, retention: String, deletion: String ->
+    // Bind a picked folder to a desktop mapping + the two policies (spec 6.1), then persist it
+    // as a durable sync_root (spec 16) so the binding survives restarts and the destination is
+    // reused instead of re-picked. Registers with the desktop first; only a successful bind is
+    // stored locally.
+    AsyncFunction("addRoot") {
+      treeUri: String,
+      displayName: String,
+      providerAuthority: String?,
+      mappingId: String,
+      destinationName: String,
+      retention: String,
+      deletion: String ->
       val control = ControlClient.forPairedDesktop(context())
       if (control == null) {
-        mapOf("ok" to false, "reason" to "not_paired")
+        mapOf<String, Any?>("ok" to false, "reason" to "not_paired")
       } else {
-        control.registerRoot(UUID.randomUUID().toString(), mappingId, displayName, retention, deletion)
+        val rootId = UUID.randomUUID().toString()
+        val reg = control.registerRoot(rootId, mappingId, displayName, retention, deletion)
+        if (reg["ok"] != true) {
+          reg
+        } else {
+          val now = System.currentTimeMillis()
+          SyncStore.get(context()).upsertRoot(
+            SyncRootEntity(
+              id = rootId,
+              treeUri = treeUri,
+              displayName = displayName,
+              providerAuthority = providerAuthority,
+              desktopDeviceId = control.target.deviceId,
+              desktopMappingId = mappingId,
+              desktopDestinationName = destinationName,
+              phoneRetentionPolicy = retention,
+              desktopDeletionPolicy = deletion,
+              enabled = true,
+              status = "idle",
+              createdAt = now,
+              updatedAt = now,
+              lastCompleteScanAt = null,
+              lastSuccessfulSyncAt = null,
+              lastErrorCode = null,
+              lastErrorMessage = null,
+            ),
+          )
+          SyncStore.get(context()).logEvent(
+            "info", "root_added", now, rootId = rootId,
+            message = "Added folder $displayName → $destinationName",
+          )
+          mapOf<String, Any?>("ok" to true, "rootId" to rootId)
+        }
       }
     }
 
-    // Start a resumable upload of one file (spec 18). Returns immediately; JS polls
-    // getUploadStatus (pull model). One upload at a time (spec 18.3).
-    AsyncFunction("startUpload") {
-      rootId: String,
-      documentUri: String,
-      relativePath: String,
-      sizeBytes: Double,
-      mimeType: String?,
-      modifiedAtMs: Double? ->
-      UploadManager.start(
-        context(),
-        rootId,
-        UUID.randomUUID().toString(),
-        documentUri,
-        relativePath,
-        sizeBytes.toLong(),
-        mimeType,
-        modifiedAtMs?.toLong(),
+    // The phone's persisted folders with per-root status for the Folders list (spec 5.2).
+    AsyncFunction("listRoots") {
+      val store = SyncStore.get(context())
+      store.listRoots().map { rootMap(store, it) }
+    }
+
+    AsyncFunction("setRootEnabled") { rootId: String, enabled: Boolean ->
+      SyncStore.get(context()).setRootEnabled(rootId, enabled, System.currentTimeMillis())
+      Unit
+    }
+
+    // Forget a folder locally and best-effort unbind it on the desktop, so the destination
+    // returns to the bindable list (spec 25.1). Desktop copies already made are untouched.
+    AsyncFunction("removeRoot") { rootId: String ->
+      val store = SyncStore.get(context())
+      val root = store.getRoot(rootId)
+      if (root != null) {
+        ControlClient.forPairedDesktop(context())?.unbindRoot(root.desktopMappingId)
+      }
+      store.deleteRoot(rootId)
+      mapOf<String, Any?>("ok" to true)
+    }
+
+    // Trigger a full sync (scan every enabled root, then drain the transfer queue) on a
+    // detached worker so the promise returns immediately; the UI polls getTransfers/listRoots.
+    // Concurrent triggers (or the service loop) serialise on the engine lock (spec 18.3).
+    AsyncFunction("syncNow") {
+      val app = context().applicationContext
+      Thread({
+        try {
+          SyncEngine.runSync(app, force = true, shouldStop = { false })
+        } catch (_: Exception) {
+          // Surfaced through per-root/per-job state in Room; never crash the worker.
+        }
+      }, "foldersync-syncnow").apply { isDaemon = true; start() }
+      mapOf<String, Any?>("started" to true)
+    }
+
+    // Active + queued transfers for the Transfers view (spec 5.5). The live byte count of the
+    // in-flight file comes from the in-memory snapshot; queued jobs come from Room.
+    AsyncFunction("getTransfers") {
+      val store = SyncStore.get(context())
+      val active = SyncEngine.activeTransfer()
+      mapOf(
+        "active" to active?.let {
+          mapOf(
+            "rootId" to it.rootId,
+            "fileName" to it.fileName,
+            "relativePath" to it.relativePath,
+            "state" to it.state,
+            "bytesUploaded" to it.bytesUploaded.toDouble(),
+            "expectedSize" to it.expectedSize.toDouble(),
+          )
+        },
+        "jobs" to store.listActiveTransfers().map { jobMap(it) },
       )
     }
 
-    AsyncFunction("getUploadStatus") {
-      UploadManager.snapshot()
-    }
-
-    AsyncFunction("cancelUpload") {
-      UploadManager.cancel()
-      Unit // definite Unit return (a bare cancel() infers Unit? via the object call)
+    // User-readable operational history (spec 5.5), newest first.
+    AsyncFunction("getSyncEvents") { limit: Int ->
+      SyncStore.get(context()).recentEvents(limit).map { eventMap(it) }
     }
 
     // Release the multicast lock + discovery listener when the module is torn down.
@@ -441,6 +519,53 @@ class FolderSyncModule : Module() {
     }
     return if (prefix.isEmpty()) segment else "$prefix/$segment"
   }
+
+  // --- JS-map projections of the durable engine state (spec 13.2). Numbers cross the bridge
+  // as Doubles; time fields are epoch millis. Never carries a secret or an absolute desktop
+  // path (spec 30). ---
+
+  private fun rootMap(store: SyncStore, root: SyncRootEntity): Map<String, Any?> {
+    val agg = store.rootAggregate(root.id)
+    return mapOf(
+      "id" to root.id,
+      "displayName" to root.displayName,
+      "treeUri" to root.treeUri,
+      "providerAuthority" to root.providerAuthority,
+      "destinationName" to root.desktopDestinationName,
+      "mappingId" to root.desktopMappingId,
+      "phoneRetentionPolicy" to root.phoneRetentionPolicy,
+      "desktopDeletionPolicy" to root.desktopDeletionPolicy,
+      "enabled" to root.enabled,
+      "status" to root.status,
+      "lastCompleteScanAt" to root.lastCompleteScanAt?.toDouble(),
+      "lastSuccessfulSyncAt" to root.lastSuccessfulSyncAt?.toDouble(),
+      "lastErrorCode" to root.lastErrorCode,
+      "lastErrorMessage" to root.lastErrorMessage,
+      "pendingCount" to agg.pendingCount,
+      "pendingBytes" to agg.pendingBytes.toDouble(),
+      "backedUpCount" to agg.backedUpCount,
+    )
+  }
+
+  private fun jobMap(job: TransferJobEntity): Map<String, Any?> = mapOf(
+    "id" to job.id,
+    "rootId" to job.rootId,
+    "fileEntryId" to job.fileEntryId,
+    "state" to job.state,
+    "attemptCount" to job.attemptCount,
+    "bytesUploaded" to job.bytesUploaded.toDouble(),
+    "expectedSize" to job.expectedSize.toDouble(),
+    "lastErrorCode" to job.lastErrorCode,
+  )
+
+  private fun eventMap(event: SyncEventEntity): Map<String, Any?> = mapOf(
+    "id" to event.id.toDouble(),
+    "severity" to event.severity,
+    "eventType" to event.eventType,
+    "rootId" to event.rootId,
+    "message" to event.message,
+    "createdAt" to event.createdAt.toDouble(),
+  )
 
   private companion object {
     // Must fit the low 16 bits for startActivityForResult.

@@ -16,9 +16,9 @@ import javax.net.ssl.SSLException
 // The raw token is read here and never crosses back to JS (spec 30). Discovery/pairing use the
 // pull model; this client is request/response.
 //
-// Roots binding (roots/available, roots/register) returns JS-ready maps with an ok/reason
-// shape mirroring PairingManager; prepare/status return typed Kotlin results for the native
-// UploadManager to drive the tus transfer.
+// Roots binding (roots/available, roots/register, roots/unbind) returns JS-ready maps with an
+// ok/reason shape mirroring PairingManager; prepare/status return typed Kotlin results the
+// native SyncEngine/TusTransport use to drive the tus transfer.
 class ControlClient private constructor(
   val target: PairingManager.PairedTarget,
   val token: String,
@@ -99,6 +99,19 @@ class ControlClient private constructor(
     return when (val r = send("POST", "/v1/roots/register", body)) {
       is Outcome.Err -> failure(r.reason)
       is Outcome.Ok -> mapOf("ok" to true, "rootId" to rootId, "mappingId" to mappingId)
+    }
+  }
+
+  // Unbind a mapping so the desktop destination returns to "available" and can be re-bound
+  // (spec 25.1). Best-effort on the phone's removeRoot path; an already-unbound mapping is a
+  // success. The desktop copies already made are untouched — this only detaches the binding.
+  fun unbindRoot(mappingId: String): Map<String, Any?> {
+    val body = JSONObject()
+      .put("requestId", UUID.randomUUID().toString())
+      .put("mappingId", mappingId)
+    return when (val r = send("POST", "/v1/roots/unbind", body)) {
+      is Outcome.Err -> failure(r.reason)
+      is Outcome.Ok -> mapOf("ok" to true, "mappingId" to mappingId)
     }
   }
 

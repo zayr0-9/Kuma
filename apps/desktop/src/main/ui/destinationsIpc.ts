@@ -32,6 +32,10 @@ export function registerDestinationsIpc(backend: Backend): () => void {
     controller.addDestination(request),
   );
 
+  ipcMain.handle(IPC_CHANNELS.destinationsUnbind, (_event, mappingId: string) =>
+    controller.unbindDestination(mappingId),
+  );
+
   return () => {
     for (const channel of Object.values(IPC_CHANNELS)) ipcMain.removeHandler(channel);
   };

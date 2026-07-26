@@ -39,3 +39,20 @@ export const rootsAvailableResponseSchema = z.object({
   destinations: z.array(availableDestinationSchema),
 });
 export type RootsAvailableResponse = z.infer<typeof rootsAvailableResponseSchema>;
+
+// POST /v1/roots/unbind (spec 25.1). Detaches the phone root from a mapping so the desktop
+// destination returns to `/v1/roots/available` and can be re-bound — the phone calls this when
+// it forgets a folder, which is what lets a destination be reused instead of stranded. Only the
+// mappingId is referenced; the desktop copies already made are untouched. Idempotent: unbinding
+// an already-unbound mapping succeeds.
+export const rootUnbindRequestSchema = z.object({
+  requestId: uuidSchema,
+  mappingId: uuidSchema,
+});
+export type RootUnbindRequest = z.infer<typeof rootUnbindRequestSchema>;
+
+export const rootUnbindResponseSchema = z.object({
+  mappingId: uuidSchema,
+  status: z.literal('unbound'),
+});
+export type RootUnbindResponse = z.infer<typeof rootUnbindResponseSchema>;

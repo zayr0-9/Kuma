@@ -3,6 +3,7 @@ package expo.modules.foldersync
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import expo.modules.foldersync.db.FileEntryEntity
 import io.tus.java.client.ProtocolException
 import io.tus.java.client.TusClient
 import io.tus.java.client.TusUpload
@@ -13,15 +14,15 @@ import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLSocketFactory
 
-// Spike 5 (spec 35, 18): resumable tus upload streamed DIRECTLY from a SAF content:// URI —
-// no whole-file copy into app cache, and no restart-from-zero after a Wi-Fi drop or a
-// process kill. We use the pure-Java tus-java-client (not tus-android-client, whose stale
-// support-library transitive deps risk an AndroidX clash on EAS) and add the Android URI
-// streaming ourselves via ContentResolver.
+// The resumable tus transport (spec 18), proven in spike 5. The three transport classes below
+// stream a SAF content:// URI directly over pinned TLS with resume; UploadManager (the
+// JS-driven single-shot from the spike) is folded into `TusTransport`, which the durable
+// SyncEngine drives from transfer_job rows (spec 18.3). We use the pure-Java tus-java-client
+// (not tus-android-client, whose stale support-library transitive deps risk an AndroidX clash
+// on EAS) and add the Android URI streaming ourselves via ContentResolver.
 
 // The upload URL keyed by an upload's fingerprint, persisted so resume survives the process
-// being killed mid-transfer (spec 35 spike 5: "restart service/process, resume from stored
-// upload URL"). tus-java-client's own store is in-memory only.
+// being killed mid-transfer (spec 18.1). tus-java-client's own store is in-memory only.
 class SharedPrefsTusUrlStore(context: Context) : TusURLStore {
   private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -93,127 +94,68 @@ class PinnedTusClient(private val socketFactory: SSLSocketFactory) : TusClient()
   }
 }
 
-// Drives ONE upload at a time (spec 18.3) on a background thread, exposing a pull-model
-// snapshot the JS harness polls — consistent with discovery/service. prepare → resumable tus
-// upload → poll prepare status until the desktop commits (spec 18.5).
-object UploadManager {
+// Outcome of moving one file's bytes end to end (prepare → tus → commit poll). The SyncEngine
+// maps this onto Room state (spec 16.2): Committed/Skipped stamp the file version and drop the
+// job; Failed(retryable) reschedules with backoff; non-retryable parks the job; Cancelled
+// leaves it pending for the next drain.
+sealed interface TransferResult {
+  data class Committed(val remoteVersionId: String?, val sha256: String?) : TransferResult
+  data class Skipped(val remoteVersionId: String, val sha256: String) : TransferResult
+  data class Failed(val errorCode: String, val message: String?, val retryable: Boolean) : TransferResult
+  data object Cancelled : TransferResult
+}
+
+// Live progress callback: (bytesUploaded, expectedSize, prepareId, tusUploadUrl?). Called
+// frequently during the chunk loop; the engine throttles what it persists.
+typealias TransferProgress = (Long, Long, String, String?) -> Unit
+
+// One-file resumable upload, driven by the engine (spec 18.5 steps 3-10). Stateless: all
+// durable state lives in Room + the fingerprint TusURLStore, so this survives process death.
+object TusTransport {
   private const val CHUNK_SIZE = 4 * 1024 * 1024
   private const val CONNECT_TIMEOUT_MS = 15_000
   private const val MAX_ATTEMPTS = 6
   private const val POLL_INTERVAL_MS = 1_000L
-  // The desktop hashes the whole file after upload (spec 18.5 step 6) — a multi-GB file
-  // takes a while, so the commit poll is generous.
+  // The desktop hashes the whole file after upload (spec 18.5 step 6) — a multi-GB file takes
+  // a while, so the commit poll is generous.
   private const val COMMIT_POLL_TIMEOUT_MS = 10 * 60 * 1000L
 
-  private val lock = Any()
-  private var state = STATE_IDLE
-  private var bytesUploaded = 0L
-  private var expectedSize = 0L
-  private var prepareId: String? = null
-  private var remoteVersionId: String? = null
-  private var reason: String? = null
-  private var fileName: String? = null
-  private var worker: Thread? = null
-
-  @Volatile private var cancelRequested = false
-
-  fun snapshot(): Map<String, Any?> = synchronized(lock) {
-    mapOf(
-      "state" to state,
-      "bytesUploaded" to bytesUploaded.toDouble(),
-      "expectedSize" to expectedSize.toDouble(),
-      "prepareId" to prepareId,
-      "remoteVersionId" to remoteVersionId,
-      "fileName" to fileName,
-      "reason" to reason,
-    )
-  }
-
-  fun cancel() {
-    cancelRequested = true
-    synchronized(lock) { worker }?.interrupt()
-  }
-
-  fun start(
+  fun uploadFile(
     context: Context,
-    rootId: String,
-    fileEntryId: String,
-    documentUri: String,
-    relativePath: String,
-    sizeBytes: Long,
-    mimeType: String?,
-    modifiedAtMs: Long?,
-  ): Map<String, Any?> {
-    val app = context.applicationContext
-    val thread = Thread({
-      try {
-        runUpload(app, rootId, fileEntryId, documentUri, relativePath, sizeBytes, mimeType, modifiedAtMs)
-      } catch (e: Exception) {
-        fail(if (cancelRequested) "cancelled" else "error: ${e.javaClass.simpleName}: ${e.message}")
-      }
-    }, "foldersync-upload")
-    // Busy-check and worker assignment are one atomic step, so two starts can't race.
-    synchronized(lock) {
-      if (worker?.isAlive == true) return mapOf("started" to false, "reason" to "busy")
-      cancelRequested = false
-      state = STATE_PREPARING
-      bytesUploaded = 0
-      expectedSize = sizeBytes
-      prepareId = null
-      remoteVersionId = null
-      reason = null
-      fileName = relativePath.substringAfterLast('/')
-      worker = thread
-    }
-    thread.start()
-    return mapOf("started" to true, "fileEntryId" to fileEntryId)
-  }
-
-  private fun runUpload(
-    context: Context,
-    rootId: String,
-    fileEntryId: String,
-    documentUri: String,
-    relativePath: String,
-    sizeBytes: Long,
-    mimeType: String?,
-    modifiedAtMs: Long?,
-  ) {
-    val control = ControlClient.forPairedDesktop(context) ?: return fail("not_paired")
-
+    control: ControlClient,
+    file: FileEntryEntity,
+    onProgress: TransferProgress,
+    shouldStop: () -> Boolean,
+  ): TransferResult {
     // 1. Reserve the upload (or learn the desktop already has this exact version — spec 6.5).
-    val prepared = control.prepareUpload(rootId, fileEntryId, relativePath, sizeBytes, modifiedAtMs, mimeType)
+    val prepared = control.prepareUpload(
+      file.rootId,
+      file.id,
+      file.relativePath,
+      file.sizeBytes,
+      file.lastModifiedMs,
+      file.mimeType,
+    )
     val reservation = when (prepared) {
-      is PrepareOutcome.Failed -> return fail(prepared.reason)
-      is PrepareOutcome.Skip -> {
-        synchronized(lock) {
-          state = STATE_SKIPPED
-          remoteVersionId = prepared.remoteVersionId
-        }
-        return
-      }
+      is PrepareOutcome.Failed -> return TransferResult.Failed(prepared.reason, null, isRetryable(prepared.reason))
+      is PrepareOutcome.Skip -> return TransferResult.Skipped(prepared.remoteVersionId, prepared.sha256)
       is PrepareOutcome.Upload -> prepared
     }
-    val activePrepareId = reservation.prepareId
-    synchronized(lock) {
-      prepareId = activePrepareId
-      state = STATE_UPLOADING
-    }
+    val prepareId = reservation.prepareId
 
-    // 2. Stream the bytes over tus, resuming across interruptions (spec 35 spike 5).
-    val uri = Uri.parse(documentUri)
+    // 2. Stream the bytes over tus, resuming across interruptions (spec 18.1).
+    val uri = Uri.parse(file.documentUri)
     val resolver = context.contentResolver
     // Size from a file descriptor, not trusting provider query metadata (spec 18.1).
-    val fdSize = fileDescriptorSize(resolver, uri) ?: sizeBytes
-    synchronized(lock) { expectedSize = fdSize }
+    val fdSize = fileDescriptorSize(resolver, uri) ?: file.sizeBytes
     val metadata = hashMapOf(
-      "prepareId" to activePrepareId,
+      "prepareId" to prepareId,
       "deviceId" to control.deviceId,
-      "rootId" to rootId,
-      "fileEntryId" to fileEntryId,
-      "relativePath" to relativePath,
-      "filename" to relativePath.substringAfterLast('/'),
-      "mimeType" to (mimeType ?: "application/octet-stream"),
+      "rootId" to file.rootId,
+      "fileEntryId" to file.id,
+      "relativePath" to file.relativePath,
+      "filename" to file.relativePath.substringAfterLast('/'),
+      "mimeType" to (file.mimeType ?: "application/octet-stream"),
       "expectedSize" to fdSize.toString(),
     )
 
@@ -232,61 +174,61 @@ object UploadManager {
     client.connectTimeout = CONNECT_TIMEOUT_MS
 
     var attempt = 0
-    // Remember the last transport error so a failure surfaces WHY (e.g. the exception class),
-    // not a bare "network" — the reason is shown on the diagnostics screen.
     var lastError = "network"
     while (true) {
-      if (cancelRequested) return fail("cancelled")
+      if (shouldStop()) return TransferResult.Cancelled
       try {
         // A fresh upload per attempt → a fresh content:// stream the uploader seeks on resume.
         val upload = UriTusUpload(resolver, uri, fdSize, metadata)
         val uploader = client.resumeOrCreateUpload(upload)
         uploader.chunkSize = CHUNK_SIZE
-        synchronized(lock) { bytesUploaded = uploader.offset }
+        val tusUrl = uploader.uploadURL?.toString()
+        onProgress(uploader.offset, fdSize, prepareId, tusUrl)
         while (uploader.uploadChunk() > -1) {
-          synchronized(lock) { bytesUploaded = uploader.offset }
-          if (cancelRequested) {
+          onProgress(uploader.offset, fdSize, prepareId, tusUrl)
+          if (shouldStop()) {
             uploader.finish(true) // close the content:// stream on the cancel path
-            return fail("cancelled")
+            return TransferResult.Cancelled
           }
         }
         uploader.finish()
         break
       } catch (e: ProtocolException) {
         // The server rejected the tus exchange (e.g. expired reservation) — not retryable.
-        return fail("protocol: ${e.message}")
+        return TransferResult.Failed("protocol", e.message, false)
       } catch (e: IOException) {
-        if (cancelRequested) return fail("cancelled")
+        if (shouldStop()) return TransferResult.Cancelled
         lastError = "network: ${e.javaClass.simpleName}: ${e.message}"
         attempt++
-        if (attempt >= MAX_ATTEMPTS) return fail(lastError)
+        if (attempt >= MAX_ATTEMPTS) return TransferResult.Failed("network", lastError, true)
         try {
           Thread.sleep(backoffMs(attempt))
         } catch (interrupted: InterruptedException) {
-          return fail("cancelled")
+          return TransferResult.Cancelled
         }
         // Loop: resumeOrCreateUpload HEADs the stored URL and resumes from the server offset.
       }
     }
 
     // 3. Wait for the desktop to verify, hash and atomically commit (spec 18.5 steps 5-10).
-    synchronized(lock) { state = STATE_VERIFYING }
-    val terminal = pollUntilTerminal(control, activePrepareId) ?: return fail("commit_timeout")
-    when (terminal.state) {
-      "committed" -> synchronized(lock) {
-        state = STATE_COMMITTED
-        remoteVersionId = terminal.remoteVersionId
-      }
-      "failed" -> fail(terminal.errorCode ?: "commit_failed")
-      "expired" -> fail("upload_expired")
-      else -> fail("commit_${terminal.state}")
+    val terminal = pollUntilTerminal(control, prepareId, shouldStop)
+      ?: return if (shouldStop()) TransferResult.Cancelled else TransferResult.Failed("commit_timeout", null, true)
+    return when (terminal.state) {
+      "committed" -> TransferResult.Committed(terminal.remoteVersionId, terminal.sha256)
+      "failed" -> TransferResult.Failed(terminal.errorCode ?: "commit_failed", null, false)
+      "expired" -> TransferResult.Failed("upload_expired", null, false)
+      else -> TransferResult.Failed("commit_${terminal.state}", null, false)
     }
   }
 
-  private fun pollUntilTerminal(control: ControlClient, prepareId: String): PrepareStatus? {
+  private fun pollUntilTerminal(
+    control: ControlClient,
+    prepareId: String,
+    shouldStop: () -> Boolean,
+  ): PrepareStatus? {
     val deadline = System.currentTimeMillis() + COMMIT_POLL_TIMEOUT_MS
     while (System.currentTimeMillis() < deadline) {
-      if (cancelRequested) return null
+      if (shouldStop()) return null
       val status = control.getPrepareStatus(prepareId)
       if (status != null && (status.state == "committed" || status.state == "failed" || status.state == "expired")) {
         return status
@@ -298,6 +240,13 @@ object UploadManager {
       }
     }
     return null
+  }
+
+  // A prepare/control failure is worth retrying only when it is transient (a network blip or a
+  // desktop temporarily offline); auth/pairing/quota failures are terminal for the queue.
+  private fun isRetryable(reason: String): Boolean = when (reason) {
+    "network", "commit_timeout" -> true
+    else -> reason.startsWith("http_5")
   }
 
   private fun fileDescriptorSize(resolver: ContentResolver, uri: Uri): Long? = try {
@@ -313,19 +262,4 @@ object UploadManager {
     val shifted = 500L shl (attempt - 1)
     return if (shifted > 8_000L) 8_000L else shifted
   }
-
-  private fun fail(cause: String) {
-    synchronized(lock) {
-      state = STATE_FAILED
-      reason = cause
-    }
-  }
-
-  private const val STATE_IDLE = "idle"
-  private const val STATE_PREPARING = "preparing"
-  private const val STATE_UPLOADING = "uploading"
-  private const val STATE_VERIFYING = "verifying"
-  private const val STATE_COMMITTED = "committed"
-  private const val STATE_SKIPPED = "skipped"
-  private const val STATE_FAILED = "failed"
 }

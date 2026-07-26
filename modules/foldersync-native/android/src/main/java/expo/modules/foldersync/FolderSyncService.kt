@@ -99,10 +99,19 @@ class FolderSyncService : Service() {
     worker = Thread {
       try {
         while (running && !paused) {
-          ticks += 1
+          // Drive the real engine (spec 17-18): scan any due root, then drain the transfer
+          // queue. runSync serialises with a JS-triggered "Sync now" on the engine lock, and
+          // returns promptly when nothing is due / the queue is empty. shouldStop lets a
+          // pause/stop interrupt a long drain cleanly.
+          try {
+            SyncEngine.runSync(applicationContext, force = false, shouldStop = { !running || paused })
+          } catch (_: Exception) {
+            // Engine faults surface via per-root/per-job state in Room; never kill the loop.
+          }
+          ticks += 1 // heartbeat for getServiceStatus; the durable truth is Room
           persist(STATE_RUNNING)
           updateNotification()
-          Thread.sleep(TICK_MS)
+          Thread.sleep(SYNC_INTERVAL_MS)
         }
       } catch (_: InterruptedException) {
         // Interrupted for pause/stop — fall through to release the wake lock.
@@ -180,9 +189,22 @@ class FolderSyncService : Service() {
     } else {
       Notification.Builder(this)
     }
+    // Non-misleading status (spec 5.3), read only from the in-memory transfer snapshot — never
+    // Room, because this also runs on the main thread from onStartCommand.
+    val active = SyncEngine.activeTransfer()
+    val title = when {
+      paused -> "FolderSync is paused"
+      active != null -> "FolderSync is backing up"
+      else -> "FolderSync is active"
+    }
+    val text = when {
+      paused -> "Sync paused"
+      active != null -> "Uploading ${active.fileName}"
+      else -> "Waiting to sync"
+    }
     builder
-      .setContentTitle(if (paused) "FolderSync is paused" else "FolderSync is backing up")
-      .setContentText("Spike run · $ticks steps done")
+      .setContentTitle(title)
+      .setContentText(text)
       .setSmallIcon(android.R.drawable.stat_sys_upload)
       .setOngoing(true)
       .setOnlyAlertOnce(true)
@@ -236,8 +258,10 @@ class FolderSyncService : Service() {
     private const val CHANNEL_ID = "foldersync_backup"
     private const val CHANNEL_NAME = "Backup service"
     private const val NOTIF_ID = 1441
-    private const val TICK_MS = 1000L
-    private const val WAKE_LOCK_TAG = "FolderSync:spike-service"
+    // How often the service loop re-drives the engine. Each pass is cheap when nothing is due
+    // and the queue is empty; a fresh "Sync now" from JS runs on its own thread immediately.
+    private const val SYNC_INTERVAL_MS = 10_000L
+    private const val WAKE_LOCK_TAG = "FolderSync:sync-service"
     private const val WAKE_LOCK_TIMEOUT_MS = 10 * 60 * 1000L
   }
 }

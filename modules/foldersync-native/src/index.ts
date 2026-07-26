@@ -120,27 +120,69 @@ export interface AvailableDestination {
 export type ListDestinationsResult =
   { ok: true; destinations: AvailableDestination[] } | { ok: false; reason: string };
 
-/** Outcome of binding a phone root to a destination (POST /v1/roots/register). */
-export type RegisterRootResult =
-  { ok: true; rootId: string; mappingId: string } | { ok: false; reason: string };
+/** Outcome of adding a folder: register it with the desktop, then persist it as a sync_root. */
+export type AddRootResult = { ok: true; rootId: string } | { ok: false; reason: string };
 
-/** Acknowledgement that a background upload started (or why it could not). */
-export type StartUploadResult =
-  { started: true; fileEntryId: string } | { started: false; reason: string };
+/** One persisted phone folder with the per-root status the Folders list renders (spec 5.2). */
+export type RootStatus = 'idle' | 'scanning' | 'syncing' | 'error';
+export interface SyncRoot {
+  id: string;
+  displayName: string;
+  treeUri: string;
+  providerAuthority: string | null;
+  /** Friendly name of the bound desktop destination (never an absolute path — spec 30). */
+  destinationName: string;
+  mappingId: string;
+  phoneRetentionPolicy: PhoneRetentionPolicy;
+  desktopDeletionPolicy: DesktopDeletionPolicy;
+  enabled: boolean;
+  status: RootStatus;
+  /** Epoch millis, or null before the first run. */
+  lastCompleteScanAt: number | null;
+  lastSuccessfulSyncAt: number | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  pendingCount: number;
+  pendingBytes: number;
+  backedUpCount: number;
+}
 
-/**
- * Pull-model snapshot of the single active upload (spec 18.3). `state` walks
- * preparing → uploading → verifying → committed, or skipped (desktop already had it) /
- * failed (see `reason`). Bytes are numbers so RN can render a progress bar.
- */
-export interface UploadStatus {
-  state: 'idle' | 'preparing' | 'uploading' | 'verifying' | 'committed' | 'skipped' | 'failed';
+/** The file currently being uploaded (spec 18.3, one at a time); null when the queue is idle. */
+export interface ActiveTransfer {
+  rootId: string;
+  fileName: string;
+  relativePath: string;
+  state: string;
   bytesUploaded: number;
   expectedSize: number;
-  prepareId: string | null;
-  remoteVersionId: string | null;
-  fileName: string | null;
-  reason: string | null;
+}
+
+/** A queued/in-flight/failed transfer row (spec 16.1 transfer_job). */
+export interface TransferJob {
+  id: string;
+  rootId: string;
+  fileEntryId: string;
+  state: 'pending' | 'uploading' | 'failed';
+  attemptCount: number;
+  bytesUploaded: number;
+  expectedSize: number;
+  lastErrorCode: string | null;
+}
+
+/** Pull-model snapshot of the transfer queue for the Transfers view (spec 5.5). */
+export interface TransfersSnapshot {
+  active: ActiveTransfer | null;
+  jobs: TransferJob[];
+}
+
+/** A user-readable operational event (spec 5.5 History); never raw logs or secrets (spec 30). */
+export interface SyncEvent {
+  id: number;
+  severity: string;
+  eventType: string;
+  rootId: string | null;
+  message: string;
+  createdAt: number;
 }
 
 export interface FolderSyncNativeModule {
@@ -171,25 +213,34 @@ export interface FolderSyncNativeModule {
   listPairedDevices(): Promise<PairedDevice[]>;
   removePairedDevice(deviceId: string): Promise<void>;
 
-  // Roots binding + spike 5 upload (spec 35, 25.2, 18). Authenticated control calls to the
-  // paired desktop and a resumable tus upload; the bearer token never crosses to JS.
+  // Roots binding + the real scan/upload engine (spec 16-18). Authenticated control calls to
+  // the paired desktop drive resumable tus uploads of a bound folder; the bearer token never
+  // crosses to JS. State is durable in Room and observed via pull-model snapshots.
+
+  /** Desktop-approved destinations this phone may bind (spec 5.1 step 10). */
   listAvailableDestinations(): Promise<ListDestinationsResult>;
-  registerRoot(
-    mappingId: string,
+  /** Bind a picked folder to a destination + policies, then persist it as a sync_root. */
+  addRoot(
+    treeUri: string,
     displayName: string,
+    providerAuthority: string | null,
+    mappingId: string,
+    destinationName: string,
     retention: PhoneRetentionPolicy,
     deletion: DesktopDeletionPolicy,
-  ): Promise<RegisterRootResult>;
-  startUpload(
-    rootId: string,
-    documentUri: string,
-    relativePath: string,
-    sizeBytes: number,
-    mimeType: string | null,
-    modifiedAtMs: number | null,
-  ): Promise<StartUploadResult>;
-  getUploadStatus(): Promise<UploadStatus>;
-  cancelUpload(): Promise<void>;
+  ): Promise<AddRootResult>;
+  /** The phone's persisted folders with per-root status (spec 5.2). */
+  listRoots(): Promise<SyncRoot[]>;
+  /** Pause/resume a root's participation in sync (spec 5.2 pause/resume control). */
+  setRootEnabled(rootId: string, enabled: boolean): Promise<void>;
+  /** Forget a folder locally and best-effort unbind it on the desktop (spec 25.1). */
+  removeRoot(rootId: string): Promise<{ ok: boolean }>;
+  /** Trigger a full sync (scan enabled roots, then drain the queue); returns immediately. */
+  syncNow(): Promise<{ started: boolean }>;
+  /** Active + queued transfers for the Transfers view (spec 5.5). */
+  getTransfers(): Promise<TransfersSnapshot>;
+  /** Recent user-readable operational events, newest first (spec 5.5). */
+  getSyncEvents(limit: number): Promise<SyncEvent[]>;
 }
 
 // null when the running dev client was built before this module existed —

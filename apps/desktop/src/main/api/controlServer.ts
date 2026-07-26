@@ -13,6 +13,8 @@ import {
   rootRegisterRequestSchema,
   rootRegisterResponseSchema,
   rootsAvailableResponseSchema,
+  rootUnbindRequestSchema,
+  rootUnbindResponseSchema,
   syncStatusResponseSchema,
   uuidSchema,
 } from '@foldersync/contracts';
@@ -330,6 +332,36 @@ export function createControlServer(context: ControlServerContext): FastifyInsta
         status: 'registered',
       }),
     );
+  });
+
+  // POST /v1/roots/unbind (spec 25.1): detaches the phone root from a mapping so the
+  // destination returns to /v1/roots/available and can be re-bound. The phone calls this
+  // when it forgets a folder. Idempotent — unbinding an already-unbound mapping succeeds —
+  // so a retried request is safe. Only the calling device's own mapping may be touched;
+  // an unknown or foreign mapping is reported identically so existence is not leaked. The
+  // desktop copies already made are never removed here (that is deletion policy, spec 19).
+  app.post(ENDPOINTS.rootsUnbind, (request) => {
+    const device = request.pairedDevice;
+    if (device === null) {
+      throw new ApiError('unauthorised', 'Not authenticated', { httpStatus: 401 });
+    }
+    const parsed = rootUnbindRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new ApiError('bad_request', 'Malformed unbind request', { httpStatus: 400 });
+    }
+    const { mappingId } = parsed.data;
+
+    const mapping = repositories.roots.getByMappingId(mappingId);
+    if (mapping === null || mapping.phoneDeviceId !== device.phoneDeviceId) {
+      throw new ApiError('root_not_mapped', 'Unknown mapping', { httpStatus: 404 });
+    }
+
+    // Already unbound → nothing to do, but still a success (idempotent retry).
+    if (mapping.phoneRootId !== null) {
+      repositories.roots.unbind(mappingId, now().toISOString());
+    }
+
+    return Promise.resolve(rootUnbindResponseSchema.parse({ mappingId, status: 'unbound' }));
   });
 
   // POST /v1/files/prepare (spec 25.2): reserves an upload for one file, or tells

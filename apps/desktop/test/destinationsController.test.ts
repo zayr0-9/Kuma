@@ -124,4 +124,32 @@ describe('destinationsController', () => {
     });
     expect(controller.listDestinations()[0]?.bound).toBe(true);
   });
+
+  it('unbinds a bound destination so it becomes available to bind again', () => {
+    controller.addDestination({ phoneDeviceId: DEVICE, destinationRoot: '/backups/Camera' });
+    repositories.roots.bind({
+      mappingId: 'mapping-1',
+      phoneRootId: 'root-1',
+      phoneRetentionPolicy: 'keep_on_phone',
+      desktopDeletionPolicy: 'preserve_desktop_copy',
+      updatedAt: CLOCK,
+    });
+
+    expect(controller.unbindDestination('mapping-1')).toEqual({ outcome: 'unbound' });
+
+    // The mapping stays (its files are untouched) but the binding + policies are cleared.
+    const stored = repositories.roots.getByMappingId('mapping-1');
+    expect(stored?.phoneRootId).toBeNull();
+    expect(stored?.phoneRetentionPolicy).toBeNull();
+    expect(controller.listDestinations()[0]?.bound).toBe(false);
+  });
+
+  it('unbinding an already-unbound destination still reports unbound (idempotent)', () => {
+    controller.addDestination({ phoneDeviceId: DEVICE, destinationRoot: '/backups/Camera' });
+    expect(controller.unbindDestination('mapping-1')).toEqual({ outcome: 'unbound' });
+  });
+
+  it('reports not_found for an unknown mapping', () => {
+    expect(controller.unbindDestination('ghost')).toEqual({ outcome: 'not_found' });
+  });
 });

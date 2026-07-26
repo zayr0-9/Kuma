@@ -11,6 +11,7 @@ import {
   type DestinationSummary,
   type DeviceSummary,
   type PickFolderResult,
+  type UnbindDestinationResult,
 } from '../shared/destinations.ts';
 import { STATUS_CHANNELS, type SyncStatusView } from '../shared/status.ts';
 
@@ -46,6 +47,9 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.destinationsPickFolder),
     add: (request: AddDestinationRequest): Promise<AddDestinationResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.destinationsAdd, request),
+    // Detach the phone folder from a destination so it is bindable again (spec 5.6).
+    unbind: (mappingId: string): Promise<UnbindDestinationResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.destinationsUnbind, mappingId),
   },
   status: {
     // Per-destination free space, policies and pending-commit backlog (spec 25.2).
