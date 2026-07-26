@@ -157,9 +157,22 @@ export function registerUploadRoutes(app: FastifyInstance, ctx: UploadRoutingCon
     const stagingDir = await stagingDirForRequest(request);
     const server = tusServerFor(stagingDir);
     reply.hijack();
-    void server.handle(request.raw, reply.raw).catch((error: unknown) => {
-      console.error('[TUSDEBUG] handle error', error);
-    });
+    void server
+      .handle(request.raw, reply.raw)
+      .then(() =>
+        console.error(
+          '[TUSDEBUG] handle DONE',
+          request.method,
+          request.raw.url,
+          'status=',
+          reply.raw.statusCode,
+          'ended=',
+          reply.raw.writableEnded,
+        ),
+      )
+      .catch((error: unknown) => {
+        console.error('[TUSDEBUG] handle ERROR', request.method, request.raw.url, error);
+      });
   };
 
   // Every tus request must reach @tus/server with its body unparsed. The PATCH chunks are
