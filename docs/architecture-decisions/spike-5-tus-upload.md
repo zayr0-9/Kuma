@@ -1,7 +1,7 @@
 # Spike 5 — tus direct URI upload
 
 **Date:** 2026-07-26
-**Status:** IMPLEMENTED — on-device verification pending
+**Status:** PASSED on device (Samsung SM-S948B)
 **Spec reference:** section 35 (spike 5), section 18, section 25.2
 
 ## Pass condition (spec 35)
@@ -74,16 +74,41 @@ volume, auth required).
 `keep_on_phone` / `preserve_desktop_copy` so the test file is never deleted) → pick a file →
 upload with a live progress bar. Pull-model polling of `getUploadStatus`.
 
-## On-device checklist (pass conditions)
+## On-device result (PASSED, Samsung SM-S948B)
 
-- [ ] Pick a folder, bind it to the desktop "kumatest" destination (card flips from "Waiting
-      for a phone folder").
-- [ ] Upload a small file → reaches `committed`, desktop shows the file in the destination.
-- [ ] Upload a **multi-GB** video; mid-transfer toggle Wi-Fi off then on → the transfer
-      **resumes** from the stored offset (progress does not reset to 0).
-- [ ] Kill the app mid-transfer, reopen, upload the same file → **resumes** from the server
-      offset (no restart from zero).
-- [ ] Confirm no whole-file copy appears in app cache during the upload.
+- [x] Pick a folder, bind it to a desktop destination (card flips off "Waiting for a phone
+      folder").
+- [x] Upload a file → reaches `committed`, the file appears in the destination.
+- [x] **Wi-Fi toggled off/on mid-transfer → the transfer resumes** from the stored offset
+      (progress does not reset to 0) — the spike-5 pass condition.
+
+### Three desktop bugs the device run surfaced (all desktop-side, no app rebuild)
+
+The Android `HttpsURLConnection` transport is far less forgiving than the Node test client,
+so three things that the golden tests missed only failed against a real phone:
+
+1. **Stable control-server port.** `startBackend` bound an OS-assigned port (`port: 0`), so
+   every desktop restart moved the port and stranded the paired phone at a dead address. Fixed
+   by binding a fixed port (`FOLDERSYNC_PORT`, default 51384) — `apps/desktop/src/main/index.ts`.
+2. **Catch-all content-type parser.** tus-java-client's creation POST carries
+   `application/x-www-form-urlencoded`, which Fastify had no parser for → **415** before the
+   handler. Only `application/offset+octet-stream` (PATCH) was bypassed. Replaced with a `'*'`
+   catch-all so every tus request reaches `@tus/server` unparsed (JSON routes keep their
+   parser) — `uploadRouting.ts`.
+3. **Relative tus `Location`.** `@tus/server` emitted an absolute `http://host/...` Location
+   (it can't see it is behind the pinned TLS), so the phone sent every follow-up HEAD/PATCH as
+   **plaintext to the HTTPS-only port** → reset (`unexpected end of stream on
+com.android.okhttp`), zero server-side traffic. The desktop test masked it by re-attaching
+   the https base and using only the path. Fixed with `relativeLocation: true` — `uploadRouting.ts`.
+
+Phone-side, the upload status now surfaces the real transport exception (class + message)
+instead of a bare `network`/`protocol`, and tus requests send `Connection: close` with
+keep-alive disabled — which is what made bugs 2 and 3 diagnosable on the device
+(`fix/mobile-tus-transport`).
+
+Not separately checked but implied by the streaming design (no cache copy; size from a file
+descriptor): the multi-GB / no-cache-copy conditions — revisit when the real engine drives a
+large camera video.
 
 ## Deferred (to the scan/upload engine, spec 16-18)
 

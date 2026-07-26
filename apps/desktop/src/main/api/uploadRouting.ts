@@ -67,7 +67,6 @@ export function registerUploadRoutes(app: FastifyInstance, ctx: UploadRoutingCon
       // upload_prepare (spec 22.3) and commit can find it. The id is a validated
       // uuid bound to an owned prepare, never a client-chosen path.
       namingFunction: (_req, metadata) => {
-        console.error('[TUSDEBUG] naming metadata=', JSON.stringify(metadata)); // TUSDEBUG
         const prepareId = metadata?.prepareId;
         if (prepareId === undefined || prepareId === null) {
           throw new Error('missing prepareId metadata');
@@ -138,47 +137,12 @@ export function registerUploadRoutes(app: FastifyInstance, ctx: UploadRoutingCon
   }
 
   const dispatch = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    // TUSDEBUG (temporary): what the phone actually sent to the tus route.
-    console.error(
-      '[TUSDEBUG] dispatch',
-      request.method,
-      request.raw.url,
-      'auth=',
-      request.pairedDevice?.phoneDeviceId ?? 'NONE',
-      'proto=',
-      request.headers['x-foldersync-protocol'],
-      'ct=',
-      request.headers['content-type'],
-      'ulen=',
-      request.headers['upload-length'],
-      'umeta=',
-      typeof request.headers['upload-metadata'] === 'string'
-        ? request.headers['upload-metadata'].slice(0, 80)
-        : request.headers['upload-metadata'],
-      'tusr=',
-      request.headers['tus-resumable'],
-    );
     // Validation runs before hijack, so a rejected upload gets the structured JSON
     // error envelope rather than a hung socket.
     const stagingDir = await stagingDirForRequest(request);
     const server = tusServerFor(stagingDir);
     reply.hijack();
-    void server
-      .handle(request.raw, reply.raw)
-      .then(() =>
-        console.error(
-          '[TUSDEBUG] handle DONE',
-          request.method,
-          request.raw.url,
-          'status=',
-          reply.raw.statusCode,
-          'ended=',
-          reply.raw.writableEnded,
-        ),
-      )
-      .catch((error: unknown) => {
-        console.error('[TUSDEBUG] handle ERROR', request.method, request.raw.url, error);
-      });
+    void server.handle(request.raw, reply.raw);
   };
 
   // Every tus request must reach @tus/server with its body unparsed. The PATCH chunks are

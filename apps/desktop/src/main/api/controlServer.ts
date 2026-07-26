@@ -161,15 +161,6 @@ export function createControlServer(context: ControlServerContext): FastifyInsta
         ? error
         : // Never surface internal error detail to the client (spec 30).
           new ApiError('internal_error', 'Internal error', { httpStatus: 500 });
-    // TUSDEBUG (temporary): surface why a request was rejected.
-    console.error(
-      '[TUSDEBUG] api-error',
-      request.method,
-      request.raw.url,
-      apiError.code,
-      apiError.httpStatus,
-      error instanceof ApiError ? '' : (error as Error)?.message,
-    );
     void reply.status(apiError.httpStatus).send(buildErrorResponse(apiError, requestId));
   });
 
