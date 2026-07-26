@@ -57,6 +57,12 @@ export function registerUploadRoutes(app: FastifyInstance, ctx: UploadRoutingCon
     const server = new TusServer({
       path: ENDPOINTS.uploads,
       datastore: new FileStore({ directory: stagingDir }),
+      // Return a RELATIVE Location (/v1/uploads/:id) for the created upload. @tus/server
+      // otherwise emits an absolute `http://host/...` URL — it can't see it is behind the
+      // pinned TLS — so the phone's tus client would send every follow-up HEAD/PATCH as plain
+      // HTTP to the HTTPS-only port, which resets ("unexpected end of stream"). A relative
+      // Location makes the client resolve against its https base, keeping the pinned transport.
+      relativeLocation: true,
       // The staged file is named by its prepare id so staging GC reconciles against
       // upload_prepare (spec 22.3) and commit can find it. The id is a validated
       // uuid bound to an owned prepare, never a client-chosen path.
