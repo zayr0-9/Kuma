@@ -39,7 +39,14 @@ object SyncEngine {
   )
 
   // Summary of one runSync pass, for the JS "Sync now" acknowledgement.
-  data class SyncOutcome(val ran: Boolean, val rootsScanned: Int, val committed: Int, val failed: Int, val reason: String?)
+  data class SyncOutcome(
+    val ran: Boolean,
+    val rootsScanned: Int,
+    val committed: Int,
+    val failed: Int,
+    val cleaned: Int,
+    val reason: String?,
+  )
 
   fun activeTransfer(): ActiveTransfer? = active
 
@@ -47,7 +54,7 @@ object SyncEngine {
   // a concurrent caller gets ran=false/busy rather than a second drain. `shouldStop` lets the
   // service interrupt cleanly on pause/stop.
   fun runSync(context: Context, force: Boolean, shouldStop: () -> Boolean): SyncOutcome {
-    if (!engineLock.tryLock()) return SyncOutcome(false, 0, 0, 0, "busy")
+    if (!engineLock.tryLock()) return SyncOutcome(false, 0, 0, 0, 0, "busy")
     try {
       val store = SyncStore.get(context.applicationContext)
       // A drainer that died mid-upload leaves 'uploading' jobs stranded; reclaim them first.
@@ -63,7 +70,11 @@ object SyncEngine {
       }
 
       val drain = drainTransfers(context, store, shouldStop)
-      return SyncOutcome(true, scanned, drain.committed, drain.failed, drain.reason)
+      // Only after the drain: verify freshly-committed files against the desktop hash and free the
+      // phone copy for delete_after_verified_backup roots (spec 19). Skipped on stop so a paused
+      // service never deletes mid-shutdown.
+      val cleaned = if (shouldStop()) 0 else CleanupEngine.cleanupEnabledRoots(context, store, shouldStop)
+      return SyncOutcome(true, scanned, drain.committed, drain.failed, cleaned, drain.reason)
     } finally {
       active = null
       engineLock.unlock()

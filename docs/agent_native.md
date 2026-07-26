@@ -120,13 +120,31 @@ fixtures in `packages/test-fixtures` (see [`agent_protocol.md`](agent_protocol.m
   maps to the pinned Kotlin 2.1.20) + `applyKspJvmToolchain()`, then `androidx.room:room-runtime`
   - `ksp androidx.room:room-compiler` at **2.7.1** (first Room line with native KSP2 support;
     2.6.x is KSP1-only). Expo resolves the version but does NOT apply the plugin — the module must.
-- **Build status:** spikes 1-5 and the **real engine are device-verified** (Samsung SM-S948B) —
-  the engine compiled clean on EAS (build `2091ec4b`, KSP2/Room 2.7) and **whole-folder
-  scan→upload works end to end** on device (pick a folder → it scans, queues and uploads its
-  files to `committed`). Not yet stress-tested on a very large folder.
-- Next: retention cleanup / delete-after-verified-backup + `deletion_event` propagation
-  (spec 19); auto-start the service from the Folders screen; batch Room writes for very large
-  first scans.
+- **Retention cleanup (spec 19) implemented** — `CleanupEngine.kt` runs after the drain in
+  `SyncEngine.runSync`, for `delete_after_verified_backup` roots only. Per file it follows the
+  spec-19.1 ordering exactly: re-query metadata just before deleting (19.4 — changed ⇒ cancel +
+  re-upload), re-read the source and compute SHA-256 **independently** of the resumable upload
+  (19.2 — a resume reads only from an offset, so the transport digest can't be trusted), compare
+  to the desktop's committed hash (mismatch ⇒ never delete, re-upload the current bytes), mark
+  `retention_cleanup_expected = true` **before** the `DocumentsContract.deleteDocument`, then record
+  `cleaned`; a failed delete parks the file `cleanup_failed` (19.3, surfaced + retryable, never
+  re-uploaded). A retention deletion **never propagates to the desktop**: `SyncStore.evaluateMissing`
+  now short-circuits any `retention_cleanup_expected` row to `cleaned` (this also recovers a crash
+  after delete but before recording success — spec 19.1), and `isCandidate` keys on
+  `remoteVersionId` (not `localState == backed_up`) so a `cleanup_failed` file is never re-uploaded
+  merely for having left the backed-up state. No Room schema change (the column already existed; the
+  new states are string values; the counts are `COUNT` queries), so DB version stays 1. Module
+  surface gained per-root `cleanedCount`/`cleanupFailedCount` and `retryCleanup(rootId)`; the
+  Folders screen shows "freed from phone" + a Retry affordance for failed deletions.
+- **Build status:** spikes 1-5 and the **real scan→upload engine are device-verified** (Samsung
+  SM-S948B) — the engine compiled clean on EAS (build `2091ec4b`, KSP2/Room 2.7) and **whole-folder
+  scan→upload works end to end** on device (pick a folder → it scans, queues and uploads its files
+  to `committed`). **Retention cleanup (spec 19) compiles on EAS** (build `a6be29e3`) and awaits
+  device verification of `delete_after_verified_backup` (verify-then-delete + the failed-delete
+  retry path). Not yet stress-tested on a very large folder.
+- Next: device-verify retention cleanup end to end; `deletion_event` propagation of user deletions
+  to the desktop trash (`mirror_user_deletions`, spec 19); auto-start the service from the Folders
+  screen; batch Room writes for very large first scans.
 
 ## Update this file when
 

@@ -84,12 +84,39 @@ interface FileEntryDao {
   fun listByRoot(rootId: String): List<FileEntryEntity>
 
   // Entries present in the store but not stamped by the just-completed generation — candidates
-  // for the missing-file two-observation rule (spec 17.5). Already-removed rows are excluded.
+  // for the missing-file two-observation rule (spec 17.5). Rows already resolved as gone are
+  // excluded: 'deleted' (user removal) and 'cleaned' (retention cleanup removed it by design).
   @Query(
     "SELECT * FROM file_entry WHERE rootId = :rootId AND lastSeenGeneration < :generation " +
-      "AND localState != 'deleted'",
+      "AND localState NOT IN ('deleted', 'cleaned')",
   )
   fun listMissing(rootId: String, generation: Int): List<FileEntryEntity>
+
+  // Files durably backed up on a delete-eligible root, awaiting phone-side verification + deletion
+  // (spec 19). Only rows carrying a committed desktop version AND its SHA-256 are eligible — a
+  // file with no hash to verify against is never deleted (spec 19.2). 'cleanup_failed' rows are
+  // excluded: they retry only on an explicit user action (resetFailedCleanups), not every pass.
+  @Query(
+    "SELECT * FROM file_entry WHERE rootId = :rootId AND localState = 'backed_up' " +
+      "AND remoteVersionId IS NOT NULL AND remoteSha256 IS NOT NULL ORDER BY updatedAt ASC LIMIT :limit",
+  )
+  fun listCleanable(rootId: String, limit: Int): List<FileEntryEntity>
+
+  // Record the intent to delete before deleting (spec 19.1), so a crash between the two retries
+  // cleanup rather than losing track of it.
+  @Query("UPDATE file_entry SET retentionCleanupExpected = :expected, updatedAt = :now WHERE id = :id")
+  fun setCleanupExpected(id: String, expected: Boolean, now: Long)
+
+  @Query("SELECT COUNT(*) FROM file_entry WHERE rootId = :rootId AND localState = 'cleaned'")
+  fun countCleaned(rootId: String): Int
+
+  @Query("SELECT COUNT(*) FROM file_entry WHERE rootId = :rootId AND localState = 'cleanup_failed'")
+  fun countCleanupFailed(rootId: String): Int
+
+  // Re-arm every failed cleanup on a root so the next sync pass re-verifies and retries the
+  // deletion (spec 19.3 "permit retry"). The committed version is untouched — never re-uploaded.
+  @Query("UPDATE file_entry SET localState = 'backed_up', updatedAt = :now WHERE rootId = :rootId AND localState = 'cleanup_failed'")
+  fun resetFailedCleanups(rootId: String, now: Long)
 
   @Query("SELECT COUNT(*) FROM file_entry WHERE rootId = :rootId AND localState IN ('discovered', 'pending_upload', 'uploading')")
   fun countPending(rootId: String): Int

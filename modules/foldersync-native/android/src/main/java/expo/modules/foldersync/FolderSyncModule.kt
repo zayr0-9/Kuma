@@ -336,6 +336,21 @@ class FolderSyncModule : Module() {
       mapOf<String, Any?>("started" to true)
     }
 
+    // Retry deletions that previously failed on a delete_after_verified_backup root (spec 19.3):
+    // re-arm the failed files, then kick a sync so the engine re-verifies and re-attempts them.
+    AsyncFunction("retryCleanup") { rootId: String ->
+      SyncStore.get(context()).retryFailedCleanups(rootId, System.currentTimeMillis())
+      val app = context().applicationContext
+      Thread({
+        try {
+          SyncEngine.runSync(app, force = false, shouldStop = { false })
+        } catch (_: Exception) {
+          // Surfaced through per-file state in Room; never crash the worker.
+        }
+      }, "foldersync-retrycleanup").apply { isDaemon = true; start() }
+      mapOf<String, Any?>("started" to true)
+    }
+
     // Active + queued transfers for the Transfers view (spec 5.5). The live byte count of the
     // in-flight file comes from the in-memory snapshot; queued jobs come from Room.
     AsyncFunction("getTransfers") {
@@ -544,6 +559,8 @@ class FolderSyncModule : Module() {
       "pendingCount" to agg.pendingCount,
       "pendingBytes" to agg.pendingBytes.toDouble(),
       "backedUpCount" to agg.backedUpCount,
+      "cleanedCount" to agg.cleanedCount,
+      "cleanupFailedCount" to agg.cleanupFailedCount,
     )
   }
 

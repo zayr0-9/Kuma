@@ -22,6 +22,7 @@ import {
   listRoots,
   type PhoneRetentionPolicy,
   removeRoot,
+  retryCleanup,
   setRootEnabled,
   type SyncRoot,
   syncNow,
@@ -141,6 +142,14 @@ export default function FoldersScreen(): ReactElement {
   const onToggle = useCallback(
     async (root: SyncRoot) => {
       await setRootEnabled(root.id, !root.enabled);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const onRetryCleanup = useCallback(
+    async (root: SyncRoot) => {
+      await retryCleanup(root.id);
       await refresh();
     },
     [refresh],
@@ -267,13 +276,33 @@ export default function FoldersScreen(): ReactElement {
               ? 'Preserve desktop copies'
               : 'Mirror deletions'}
           </Text>
-          <Text style={styles.stats}>
-            {root.backedUpCount} backed up
-            {root.pendingCount > 0
-              ? ` · ${root.pendingCount} pending · ${formatBytes(root.pendingBytes)}`
-              : ' · nothing pending'}
-          </Text>
+          {root.phoneRetentionPolicy === 'delete_after_verified_backup' ? (
+            <Text style={styles.stats}>
+              {root.cleanedCount} freed from phone
+              {root.backedUpCount > 0 ? ` · ${root.backedUpCount} awaiting cleanup` : ''}
+              {root.pendingCount > 0
+                ? ` · ${root.pendingCount} pending · ${formatBytes(root.pendingBytes)}`
+                : ''}
+            </Text>
+          ) : (
+            <Text style={styles.stats}>
+              {root.backedUpCount} backed up
+              {root.pendingCount > 0
+                ? ` · ${root.pendingCount} pending · ${formatBytes(root.pendingBytes)}`
+                : ' · nothing pending'}
+            </Text>
+          )}
           <Text style={styles.muted}>Last scan {formatRelative(root.lastCompleteScanAt)}</Text>
+          {root.cleanupFailedCount > 0 ? (
+            <View style={styles.cleanupFailedRow}>
+              <Text style={styles.cleanupFailedText}>
+                {root.cleanupFailedCount} backed up but couldn’t be removed from the phone
+              </Text>
+              <Pressable onPress={() => void onRetryCleanup(root)} hitSlop={8}>
+                <Text style={styles.retry}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : null}
           {root.lastErrorMessage !== null && root.status === 'error' ? (
             <Text style={styles.error}>{root.lastErrorMessage}</Text>
           ) : null}
@@ -393,6 +422,13 @@ const styles = StyleSheet.create({
   },
   cardHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   centered: { alignItems: 'center', flex: 1, gap: 8, justifyContent: 'center', padding: 24 },
+  cleanupFailedRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+  },
+  cleanupFailedText: { color: '#b91c1c', flex: 1 },
   chooser: {
     backgroundColor: '#eef2ff',
     borderRadius: 10,
@@ -418,6 +454,7 @@ const styles = StyleSheet.create({
   policyLabel: { flex: 1, paddingRight: 12 },
   policyRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   remove: { color: '#b91c1c', fontWeight: '600' },
+  retry: { color: '#1d4ed8', fontWeight: '600' },
   spinner: { marginTop: 8 },
   stats: { color: '#0f172a', fontWeight: '500' },
   title: { fontSize: 24, fontWeight: '600' },
