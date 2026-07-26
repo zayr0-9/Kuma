@@ -43,13 +43,18 @@ Entries are ordered newest-first.
   `modules/foldersync-native/src/index.ts`, `apps/mobile/src/native/gallery.ts`,
   `apps/mobile/app/gallery.tsx`; docs `foldersync_implementation_spec.md` (22.4),
   `agent_native.md`, `agent_mobile.md`.
-- **Gates:** `pnpm -r typecheck` clean (6 projects); eslint + `format:check` pending in this run.
-  **Kotlin compiles only on EAS.**
+- **Gates:** `pnpm -r typecheck` (6 projects), eslint, `format:check` all clean.
+- **Build:** EAS dev build **`6f1213cc`** (off `feat/thumbnail-cache` HEAD, so it covers **both**
+  stacked changes) **FINISHED** — Kotlin compiled clean (pool + watcher + `RemoteMedia` cache).
+  APK: https://expo.dev/artifacts/eas/U5irCQy2nzIeT0mROFBEGmPB7kqbGissGQsO4qc_mXc.apk — install on
+  the Samsung SM-S948B (nothing else compiles the Kotlin).
 - **PR:** `feat/thumbnail-cache` — stacked on `feat/upload-parallelism` (second of two). After the
   uploads PR merges: `git rebase --onto origin/main feat/upload-parallelism feat/thumbnail-cache`
   → the diff becomes thumbnail-only.
 - **Docs updated:** spec 22.4, `agent_native.md`, `agent_mobile.md`.
-- **Follow-ups:** device-verify with a fresh EAS build (one build tests both stacked changes).
+- **Follow-ups:** **device-test pending** on the Samsung (APK `6f1213cc`) — verify the pool shows
+  ≤3 concurrent uploads with no inter-file gap, and that re-opening a gallery paints instantly
+  from the durable cache with no desktop hit.
   Later niceties: LRU-on-read (touch mtime on cache hit) instead of FIFO; a "clear this folder's
   thumbnails" action now that the cache is per-root.
 
@@ -82,8 +87,9 @@ Entries are ordered newest-first.
 FolderSyncModule.kt, FolderSyncService.kt}`, `modules/foldersync-native/src/index.ts`,
   `apps/mobile/app/transfers.tsx`; docs `foldersync_implementation_spec.md` (18.3 + decision
   table + §39 deferred), `agent_native.md`, `agent_mobile.md`.
-- **Gates:** `pnpm -r typecheck` clean (6 projects); eslint + `format:check` pending in this run.
-  **Kotlin compiles only on EAS** — needs a fresh dev build to device-verify the pool.
+- **Gates:** `pnpm -r typecheck` (6 projects), eslint, `format:check` all clean. Kotlin compiled
+  clean on EAS via the stacked build **`6f1213cc`** (see the thumbnail-cache entry above; that dev
+  build carries this branch's commit too).
 - **PR:** `feat/upload-parallelism` — to open + squash-merge (first of two; thumbnail-cache branch
   follows).
 - **Docs updated:** spec 18.3 / decision table / §39, `agent_native.md`, `agent_mobile.md`.
