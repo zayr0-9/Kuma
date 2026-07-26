@@ -136,15 +136,27 @@ fixtures in `packages/test-fixtures` (see [`agent_protocol.md`](agent_protocol.m
   new states are string values; the counts are `COUNT` queries), so DB version stays 1. Module
   surface gained per-root `cleanedCount`/`cleanupFailedCount` and `retryCleanup(rootId)`; the
   Folders screen shows "freed from phone" + a Retry affordance for failed deletions.
-- **Build status:** spikes 1-5 and the **real scan→upload engine are device-verified** (Samsung
-  SM-S948B) — the engine compiled clean on EAS (build `2091ec4b`, KSP2/Room 2.7) and **whole-folder
-  scan→upload works end to end** on device (pick a folder → it scans, queues and uploads its files
-  to `committed`). **Retention cleanup (spec 19) compiles on EAS** (build `a6be29e3`) and awaits
-  device verification of `delete_after_verified_backup` (verify-then-delete + the failed-delete
-  retry path). Not yet stress-tested on a very large folder.
-- Next: device-verify retention cleanup end to end; `deletion_event` propagation of user deletions
-  to the desktop trash (`mirror_user_deletions`, spec 19); auto-start the service from the Folders
-  screen; batch Room writes for very large first scans.
+- **Automatic background sync (spec 14.1/14.3) wired** — the foreground service already drives
+  `SyncEngine.runSync` on its worker loop, but nothing started it, so sync only ran on a manual
+  "Sync now". Now the service **auto-starts from the foreground** (the legal start path, spec 14.3 —
+  no `BOOT_COMPLETED` receiver, which the spec says must be per-SDK-tested and which Samsung's
+  battery manager kills anyway, spec 14.8). A durable **default-on `auto_sync` preference** in the
+  service prefs is the on/off truth: `ensureBackgroundSync()` (called on Folders mount + after
+  adding a folder) starts the service iff the pref is on AND an enabled root exists;
+  `setBackgroundSyncEnabled(enabled)` is the Folders toggle; the notification **Stop** now writes
+  the pref off too, so a reopen doesn't silently restart it. The worker loop's **wake lock is now
+  scoped to each work pass** (acquire → `runSync` → release) instead of being held across the idle
+  sleep (spec 14.6). Once running, the loop rescans due roots (`SCAN_INTERVAL_MS` = 15 min) and
+  drains + cleans every ~10 s, so new/changed files back up without the app open.
+- **Build status:** spikes 1-5, the **real scan→upload engine, and retention cleanup are
+  device-verified** (Samsung SM-S948B) — the engine compiled clean on EAS (`2091ec4b`), whole-folder
+  scan→upload works end to end, and `delete_after_verified_backup` **frees the phone copy** on device
+  (build `a6be29e3`). Automatic background sync compiles on EAS (build TBD) and awaits device
+  verification (service auto-starts on open; new files sync without a manual trigger). Not yet
+  stress-tested on a very large folder.
+- Next: device-verify automatic background sync; `deletion_event` propagation of user deletions to
+  the desktop trash (`mirror_user_deletions`, spec 19); a per-OEM battery-exclusion guidance screen
+  (spec 14.8, so Samsung doesn't kill the service); batch Room writes for very large first scans.
 
 ## Update this file when
 

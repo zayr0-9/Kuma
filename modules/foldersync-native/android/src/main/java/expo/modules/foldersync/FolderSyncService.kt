@@ -47,6 +47,10 @@ class FolderSyncService : Service() {
     if (ticks == 0L) ticks = prefs.getLong(KEY_TICKS, 0L)
 
     if (intent?.action == ACTION_STOP) {
+      // Stop is a durable "turn background sync off" (from the notification or the UI toggle), so
+      // a later app-open does not silently restart it (spec 14.3 — reopening resumes only what the
+      // user still wants). The UI toggle also writes this; writing here covers the notification.
+      prefs.edit().putBoolean(KEY_AUTO_SYNC, false).commit()
       // Satisfy the start-foreground contract even if we were cold-started with STOP,
       // then tear down cleanly.
       startForegroundNow()
@@ -95,18 +99,25 @@ class FolderSyncService : Service() {
   private fun startWork() {
     if (worker?.isAlive == true) return
     running = true
-    acquireWakeLock()
     worker = Thread {
       try {
         while (running && !paused) {
           // Drive the real engine (spec 17-18): scan any due root, then drain the transfer
-          // queue. runSync serialises with a JS-triggered "Sync now" on the engine lock, and
-          // returns promptly when nothing is due / the queue is empty. shouldStop lets a
-          // pause/stop interrupt a long drain cleanly.
+          // queue, then apply retention cleanup. runSync serialises with a JS-triggered "Sync
+          // now" on the engine lock, and returns promptly when nothing is due / the queue is
+          // empty. shouldStop lets a pause/stop interrupt a long drain cleanly.
+          //
+          // The partial wake lock is held only across this work pass and released before the
+          // idle sleep (spec 14.6: hold it only while actively scanning/transferring, never
+          // while waiting) — a continuously-held lock drains the battery and invites OEM
+          // battery managers to kill the service (spec 14.8).
+          acquireWakeLock()
           try {
             SyncEngine.runSync(applicationContext, force = false, shouldStop = { !running || paused })
           } catch (_: Exception) {
             // Engine faults surface via per-root/per-job state in Room; never kill the loop.
+          } finally {
+            releaseWakeLock()
           }
           ticks += 1 // heartbeat for getServiceStatus; the durable truth is Room
           persist(STATE_RUNNING)
@@ -245,6 +256,11 @@ class FolderSyncService : Service() {
     const val KEY_STATE = "state"
     const val KEY_TICKS = "ticks"
     const val KEY_UPDATED = "updated_at"
+    // Whether the user wants continuous background sync (spec 14.1). Durable + default-on so a
+    // reopen (spec 14.3: reboot resumes when the app is next opened) re-arms it, while an
+    // explicit toggle-off sticks. The module reads it to auto-start; the service never runs
+    // just because a folder exists — only when this says so.
+    const val KEY_AUTO_SYNC = "auto_sync"
 
     const val STATE_RUNNING = "running"
     const val STATE_PAUSED = "paused"

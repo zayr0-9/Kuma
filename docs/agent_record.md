@@ -23,6 +23,39 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-26T12:08+0100 — feat/background-sync — Automatic background sync: auto-start the foreground service (spec 14)
+
+- **Done:** closed the "sync only runs when I press Sync now" gap. The foreground service already
+  drove `SyncEngine.runSync` on its worker loop, but nothing started it. Now it **auto-starts from
+  the foreground** (spec 14.3's legal start path — deliberately no `BOOT_COMPLETED` receiver, which
+  the spec says must be per-SDK-tested and which Samsung's battery manager kills anyway, spec 14.8;
+  reopening the app resumes it). A durable **default-on `auto_sync` preference** (service
+  SharedPreferences) is the on/off truth: `ensureBackgroundSync()` (Folders mount + after adding a
+  folder) starts the service iff the pref is on AND an enabled root exists;
+  `setBackgroundSyncEnabled(enabled)` is the new Folders toggle; the notification **Stop** now
+  writes the pref off too, so a reopen doesn't silently restart it. The worker loop's **wake lock is
+  now scoped to each work pass** (acquire → `runSync` → release) instead of held across the idle
+  sleep (spec 14.6 — a continuously-held lock drains battery + trips OEM killers). Once running the
+  loop rescans due roots every 15 min (`SCAN_INTERVAL_MS`) and drains + cleans every ~10 s, so
+  new/changed files back up with the app closed. `getServiceStatus` now returns `autoSyncEnabled`;
+  Folders shows an "Automatic background sync" card with the live state + toggle.
+- **Files:** `FolderSyncService.kt` (wake-lock scope, `KEY_AUTO_SYNC`, Stop writes the pref),
+  `FolderSyncModule.kt` (`setBackgroundSyncEnabled`/`ensureBackgroundSync` + `autoSyncEnabled` in
+  status), `modules/foldersync-native/src/index.ts`, `apps/mobile/src/native/service.ts`,
+  `apps/mobile/app/folders.tsx`.
+- **Build:** compiles on EAS (build `1d61d439`, KSP2/Room 2.7). Awaits device verification: add a
+  folder, close the app, drop in a new file → it should back up within ~15 min with no manual
+  trigger.
+- **Gates:** `pnpm -r typecheck` + `eslint` clean (6 projects); contracts 72 + desktop 190 tests
+  green (unchanged — phone-only); prettier last.
+- **PR:** `feat/background-sync` off main (stacked cleanly on the merged retention-cleanup #22) —
+  open + squash-merge.
+- **Docs updated:** this record, `agent_native.md`.
+- **Follow-ups:** device-verify background sync; a per-OEM battery-exclusion guidance screen
+  (spec 14.8) so Samsung doesn't kill the service; `deletion_event` propagation
+  (`mirror_user_deletions`, spec 19); richer service states (spec 14.5) + network-callback-driven
+  wakeups instead of the 10 s poll (spec 14.6); batch Room writes for very large first scans.
+
 ### 2026-07-26T11:52+0100 — feat/retention-cleanup — Retention cleanup: delete-after-verified-backup (spec 19)
 
 - **Done:** the phone now frees its own space. `CleanupEngine.kt` runs after the transfer drain in

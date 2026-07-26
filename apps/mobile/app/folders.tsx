@@ -28,6 +28,12 @@ import {
   syncNow,
 } from '../src/native/engine.ts';
 import { pickDirectory } from '../src/native/saf.ts';
+import {
+  ensureBackgroundSync,
+  getServiceStatus,
+  setBackgroundSyncEnabled,
+  type ServiceStatus,
+} from '../src/native/service.ts';
 
 // Folders screen (spec 5.2, 5.5 Add/edit folder). Lists the phone's persisted sync roots with
 // per-root status, and drives the add-folder flow: pick a directory → choose a desktop
@@ -51,13 +57,17 @@ export default function FoldersScreen(): ReactElement {
   const [destinations, setDestinations] = useState<AvailableDestination[]>([]);
   const [retention, setRetention] = useState<PhoneRetentionPolicy>('keep_on_phone');
   const [deletion, setDeletion] = useState<DesktopDeletionPolicy>('preserve_desktop_copy');
+  const [service, setService] = useState<ServiceStatus | null>(null);
   const mounted = useRef(true);
 
   const refresh = useCallback(async () => {
     if (!linked) return;
     try {
-      const next = await listRoots();
-      if (mounted.current) setRoots(next);
+      const [nextRoots, nextService] = await Promise.all([listRoots(), getServiceStatus()]);
+      if (mounted.current) {
+        setRoots(nextRoots);
+        setService(nextService);
+      }
     } catch {
       // A transient bridge error is harmless — the next poll retries.
     }
@@ -66,12 +76,24 @@ export default function FoldersScreen(): ReactElement {
   useEffect(() => {
     mounted.current = true;
     void refresh();
+    // Resume automatic background sync on open (spec 14.3): a no-op unless the user wants it and
+    // has an enabled folder, so it never starts an idle service.
+    void ensureBackgroundSync().catch(() => undefined);
     const timer = setInterval(() => void refresh(), POLL_MS);
     return () => {
       mounted.current = false;
       clearInterval(timer);
     };
   }, [refresh]);
+
+  const onToggleBackgroundSync = useCallback(
+    async (enabled: boolean) => {
+      setService((prev) => (prev === null ? prev : { ...prev, autoSyncEnabled: enabled }));
+      await setBackgroundSyncEnabled(enabled);
+      await refresh();
+    },
+    [refresh],
+  );
 
   const onAddFolder = useCallback(async () => {
     setBusy(true);
@@ -126,6 +148,8 @@ export default function FoldersScreen(): ReactElement {
         setPending(null);
         setDestinations([]);
         await syncNow();
+        // From the first folder on, let the background service keep it synced without "Sync now".
+        await ensureBackgroundSync().catch(() => undefined);
         await refresh();
       } finally {
         setBusy(false);
@@ -256,6 +280,21 @@ export default function FoldersScreen(): ReactElement {
         </View>
       )}
 
+      {pending === null && roots.length > 0 ? (
+        <View style={styles.syncCard}>
+          <View style={styles.syncRow}>
+            <View style={styles.syncTextCol}>
+              <Text style={styles.syncTitle}>Automatic background sync</Text>
+              <Text style={styles.muted}>{backgroundSyncSummary(service)}</Text>
+            </View>
+            <Switch
+              value={service?.autoSyncEnabled ?? true}
+              onValueChange={(next) => void onToggleBackgroundSync(next)}
+            />
+          </View>
+        </View>
+      ) : null}
+
       {roots.length === 0 && pending === null ? (
         <Text style={styles.muted}>No folders yet. Tap “Add folder” to back one up.</Text>
       ) : null}
@@ -363,6 +402,20 @@ function StatusBadge({ root }: { root: SyncRoot }): ReactElement {
   );
 }
 
+function backgroundSyncSummary(service: ServiceStatus | null): string {
+  if (service === null) return 'Checking…';
+  if (!service.autoSyncEnabled)
+    return 'Off — turn on to back up new files without opening the app.';
+  switch (service.state) {
+    case 'paused':
+      return 'Paused from the notification. Resume there, or turn off here.';
+    case 'running':
+      return 'On — runs in the background and checks for changes about every 15 min.';
+    default:
+      return 'On — starts automatically while the app is open.';
+  }
+}
+
 function friendlyReason(reason: string): string {
   switch (reason) {
     case 'not_paired':
@@ -456,6 +509,21 @@ const styles = StyleSheet.create({
   remove: { color: '#b91c1c', fontWeight: '600' },
   retry: { color: '#1d4ed8', fontWeight: '600' },
   spinner: { marginTop: 8 },
+  syncCard: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#a7f3d0',
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 14,
+  },
+  syncRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  syncTextCol: { flex: 1, gap: 2 },
+  syncTitle: { fontSize: 15, fontWeight: '600' },
   stats: { color: '#0f172a', fontWeight: '500' },
   title: { fontSize: 24, fontWeight: '600' },
 });
