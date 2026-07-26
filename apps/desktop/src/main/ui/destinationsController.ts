@@ -7,6 +7,7 @@ import type {
   AddDestinationResult,
   DestinationSummary,
   DeviceSummary,
+  UnbindDestinationResult,
 } from '../../shared/destinations.ts';
 
 // Manages destinations (root_mapping rows) for the desktop UI with no Electron
@@ -26,6 +27,7 @@ export interface DestinationsController {
   listDevices(): DeviceSummary[];
   listDestinations(): DestinationSummary[];
   addDestination(input: AddDestinationRequest): AddDestinationResult;
+  unbindDestination(mappingId: string): UnbindDestinationResult;
 }
 
 export function createDestinationsController(
@@ -97,6 +99,19 @@ export function createDestinationsController(
           bound: false,
         },
       };
+    },
+
+    // Detach the phone folder so the destination is bindable again (spec 5.6 revocation).
+    // The mapping row and its already-committed desktop files are kept — only the binding
+    // (phone_root_id + the two policies) is cleared. The phone still holds a stale sync_root
+    // until it removes the folder too; its next prepare against this mapping returns
+    // root_not_mapped, which it surfaces as an error rather than silently re-uploading.
+    unbindDestination: (mappingId) => {
+      if (repositories.roots.getByMappingId(mappingId) === null) {
+        return { outcome: 'not_found' };
+      }
+      repositories.roots.unbind(mappingId, now().toISOString());
+      return { outcome: 'unbound' };
     },
   };
 }

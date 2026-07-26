@@ -28,6 +28,8 @@ export function DestinationsPanel(): ReactElement {
   const [statusByMapping, setStatusByMapping] = useState<Map<string, DestinationStatus>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The mapping awaiting a second click to confirm its unbind (a stray click shouldn't detach).
+  const [pendingUnbind, setPendingUnbind] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!bridge) return;
@@ -73,6 +75,25 @@ export function DestinationsPanel(): ReactElement {
         setError('This folder cannot be used as a destination.');
       } else {
         setError('That phone is no longer paired.');
+      }
+    },
+    [bridge, refresh],
+  );
+
+  // Detach the phone folder so the destination is bindable again (spec 5.6 revocation). The
+  // desktop copies already made are kept; the phone must add the folder again to resume.
+  const unbind = useCallback(
+    async (mappingId: string) => {
+      if (!bridge) return;
+      setError(null);
+      setBusy(true);
+      const result = await bridge.destinations.unbind(mappingId);
+      setBusy(false);
+      setPendingUnbind(null);
+      if (result.outcome === 'unbound') {
+        await refresh();
+      } else {
+        setError('That destination no longer exists.');
       }
     },
     [bridge, refresh],
@@ -135,6 +156,30 @@ export function DestinationsPanel(): ReactElement {
                               : `Last backed up ${formatRelativeTime(status.lastSyncedAt, Date.now())}`}
                           </div>
                         )}
+                        {d.bound &&
+                          (pendingUnbind === d.mappingId ? (
+                            <div>
+                              <span>Unbind this folder? The phone will need to add it again.</span>{' '}
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void unbind(d.mappingId)}
+                              >
+                                Confirm unbind
+                              </button>{' '}
+                              <button type="button" onClick={() => setPendingUnbind(null)}>
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => setPendingUnbind(d.mappingId)}
+                            >
+                              Unbind
+                            </button>
+                          ))}
                       </li>
                     );
                   })}

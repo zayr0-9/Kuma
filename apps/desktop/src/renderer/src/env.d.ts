@@ -5,6 +5,7 @@ import type {
   DestinationSummary,
   DeviceSummary,
   PickFolderResult,
+  UnbindDestinationResult,
 } from '../../shared/destinations.ts';
 import type { SyncStatusView } from '../../shared/status.ts';
 
@@ -31,6 +32,7 @@ declare global {
         list: () => Promise<DestinationSummary[]>;
         pickFolder: () => Promise<PickFolderResult>;
         add: (request: AddDestinationRequest) => Promise<AddDestinationResult>;
+        unbind: (mappingId: string) => Promise<UnbindDestinationResult>;
       };
       status: {
         get: () => Promise<SyncStatusView>;
