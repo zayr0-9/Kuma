@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
+import {
+  Clock,
+  CloudOff,
+  FolderPlus,
+  HardDrive,
+  Monitor,
+  RefreshCw,
+  ShieldCheck,
+  Smartphone,
+  TriangleAlert,
+  Trash2,
+} from 'lucide-react';
 import type { DesktopDeletionPolicy, PhoneRetentionPolicy } from '@foldersync/contracts';
 import type { DestinationSummary, DeviceSummary } from '../../shared/destinations.ts';
 import type { DestinationStatus } from '../../shared/status.ts';
@@ -100,98 +112,204 @@ export function DestinationsPanel(): ReactElement {
   );
 
   if (!bridge) {
-    return <p>Destinations are unavailable — the preload bridge failed to load.</p>;
+    return (
+      <section className="card alert alert--danger">
+        <span className="body">
+          Destinations are unavailable — the preload bridge failed to load.
+        </span>
+      </section>
+    );
   }
 
   return (
-    <section>
-      <h2>Destinations</h2>
-      <button type="button" onClick={() => void refresh()}>
-        Refresh
-      </button>
-      {error !== null && <p>{error}</p>}
-      {devices === null ? (
-        <p>Loading…</p>
-      ) : devices.length === 0 ? (
-        <p>Pair a phone first, then add folders on this desktop to back it up into.</p>
-      ) : (
-        devices.map((device) => {
-          const owned = destinations.filter((d) => d.phoneDeviceId === device.deviceId);
-          return (
-            <article key={device.deviceId}>
-              <h3>{device.displayName}</h3>
-              {owned.length === 0 ? (
-                <p>No destinations yet.</p>
-              ) : (
-                <ul>
-                  {owned.map((d) => {
-                    const status = statusByMapping.get(d.mappingId);
-                    return (
-                      <li key={d.mappingId}>
-                        <strong>{d.displayName}</strong> — {d.destinationRoot}
-                        <div>
-                          {d.bound ? 'Linked to a phone folder' : 'Waiting for a phone folder'}
-                        </div>
-                        {status !== undefined &&
-                          (status.destinationAvailable ? (
-                            <div>
-                              {formatBytes(status.freeBytes)} free
-                              {status.pendingCommits > 0
-                                ? ` · ${status.pendingCommits} waiting to commit`
-                                : ''}
-                            </div>
-                          ) : (
-                            <div>Destination unavailable</div>
-                          ))}
-                        {d.bound && status?.phoneRetentionPolicy != null && (
-                          <div>{PHONE_RETENTION_LABELS[status.phoneRetentionPolicy]}</div>
-                        )}
-                        {d.bound && status?.desktopDeletionPolicy != null && (
-                          <div>{DESKTOP_DELETION_LABELS[status.desktopDeletionPolicy]}</div>
-                        )}
-                        {d.bound && status !== undefined && (
-                          <div>
-                            {status.lastSyncedAt === null
-                              ? 'No backups yet'
-                              : `Last backed up ${formatRelativeTime(status.lastSyncedAt, Date.now())}`}
-                          </div>
-                        )}
-                        {d.bound &&
-                          (pendingUnbind === d.mappingId ? (
-                            <div>
-                              <span>Unbind this folder? The phone will need to add it again.</span>{' '}
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => void unbind(d.mappingId)}
-                              >
-                                Confirm unbind
-                              </button>{' '}
-                              <button type="button" onClick={() => setPendingUnbind(null)}>
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => setPendingUnbind(d.mappingId)}
-                            >
-                              Unbind
-                            </button>
-                          ))}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-              <button type="button" disabled={busy} onClick={() => void addFor(device.deviceId)}>
-                Add folder
-              </button>
-            </article>
-          );
-        })
-      )}
+    <section className="card">
+      <div className="stack">
+        <div className="row-between">
+          <div className="section-title">
+            <span className="chip">
+              <Monitor size={20} />
+            </span>
+            <h2 className="title">Destinations</h2>
+          </div>
+          <button type="button" className="btn btn--ghost" onClick={() => void refresh()}>
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+        </div>
+
+        {error !== null && (
+          <div className="alert alert--warning">
+            <TriangleAlert size={16} />
+            <span className="caption">{error}</span>
+          </div>
+        )}
+
+        {devices === null ? (
+          <p className="body muted">Loading…</p>
+        ) : devices.length === 0 ? (
+          <div className="card card--sunken row">
+            <span className="chip">
+              <Smartphone size={20} />
+            </span>
+            <span className="body muted">
+              Pair a phone first, then add folders on this desktop to back it up into.
+            </span>
+          </div>
+        ) : (
+          devices.map((device) => {
+            const owned = destinations.filter((d) => d.phoneDeviceId === device.deviceId);
+            return (
+              <div key={device.deviceId} className="stack-sm">
+                <div className="row">
+                  <span className="chip">
+                    <Smartphone size={20} />
+                  </span>
+                  <h3 className="body-strong">{device.displayName}</h3>
+                </div>
+
+                {owned.length === 0 ? (
+                  <p className="caption muted">No destinations yet.</p>
+                ) : (
+                  <div className="stack-sm">
+                    {owned.map((d) => (
+                      <DestinationCard
+                        key={d.mappingId}
+                        destination={d}
+                        status={statusByMapping.get(d.mappingId)}
+                        busy={busy}
+                        pendingUnbind={pendingUnbind === d.mappingId}
+                        onRequestUnbind={() => setPendingUnbind(d.mappingId)}
+                        onCancelUnbind={() => setPendingUnbind(null)}
+                        onConfirmUnbind={() => void unbind(d.mappingId)}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  disabled={busy}
+                  onClick={() => void addFor(device.deviceId)}
+                >
+                  <FolderPlus size={16} />
+                  Add folder
+                </button>
+              </div>
+            );
+          })
+        )}
+      </div>
     </section>
+  );
+}
+
+function DestinationCard({
+  destination: d,
+  status,
+  busy,
+  pendingUnbind,
+  onRequestUnbind,
+  onCancelUnbind,
+  onConfirmUnbind,
+}: {
+  destination: DestinationSummary;
+  status: DestinationStatus | undefined;
+  busy: boolean;
+  pendingUnbind: boolean;
+  onRequestUnbind: () => void;
+  onCancelUnbind: () => void;
+  onConfirmUnbind: () => void;
+}): ReactElement {
+  const unavailable = d.bound && status !== undefined && !status.destinationAvailable;
+
+  return (
+    <div className="card card--sunken card--pad-md stack-sm">
+      <div className="row-between">
+        <div className="grow">
+          <div className="body-strong">{d.displayName}</div>
+          <div className="caption subtle">{d.destinationRoot}</div>
+        </div>
+        {!d.bound ? (
+          <span className="pill pill--muted">
+            <CloudOff size={13} />
+            Waiting for phone
+          </span>
+        ) : unavailable ? (
+          <span className="pill pill--warning">
+            <TriangleAlert size={13} />
+            Unavailable
+          </span>
+        ) : (
+          <span className="pill pill--success">
+            <ShieldCheck size={13} />
+            Linked
+          </span>
+        )}
+      </div>
+
+      {status !== undefined &&
+        (status.destinationAvailable ? (
+          <div className="row caption muted">
+            <HardDrive size={14} />
+            <span>
+              {formatBytes(status.freeBytes)} free
+              {status.pendingCommits > 0 ? ` · ${status.pendingCommits} waiting to commit` : ''}
+            </span>
+          </div>
+        ) : (
+          <div className="caption muted">Destination unavailable</div>
+        ))}
+
+      {d.bound && status?.phoneRetentionPolicy != null && (
+        <div className="caption muted">{PHONE_RETENTION_LABELS[status.phoneRetentionPolicy]}</div>
+      )}
+      {d.bound && status?.desktopDeletionPolicy != null && (
+        <div className="caption muted">{DESKTOP_DELETION_LABELS[status.desktopDeletionPolicy]}</div>
+      )}
+
+      {d.bound && status !== undefined && (
+        <div className="row caption subtle">
+          <Clock size={14} />
+          <span>
+            {status.lastSyncedAt === null
+              ? 'No backups yet'
+              : `Last backed up ${formatRelativeTime(status.lastSyncedAt, Date.now())}`}
+          </span>
+        </div>
+      )}
+
+      {d.bound &&
+        (pendingUnbind ? (
+          <div className="row-between">
+            <span className="caption muted">
+              Unbind this folder? The phone will need to add it again.
+            </span>
+            <div className="row">
+              <button
+                type="button"
+                className="btn btn--ghost btn--danger"
+                disabled={busy}
+                onClick={onConfirmUnbind}
+              >
+                Confirm unbind
+              </button>
+              <button type="button" className="btn btn--ghost" onClick={onCancelUnbind}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="btn btn--ghost btn--danger"
+            disabled={busy}
+            onClick={onRequestUnbind}
+          >
+            <Trash2 size={16} />
+            Unbind
+          </button>
+        ))}
+    </div>
   );
 }

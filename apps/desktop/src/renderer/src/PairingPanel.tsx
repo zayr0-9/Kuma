@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
+import { CircleAlert, CircleCheck, QrCode } from 'lucide-react';
 import type { PairingPresentation } from '../../shared/pairing.ts';
 
 // The desktop pairing surface (spec 24.3, agent_design §5): shows the QR the phone
@@ -60,44 +61,74 @@ export function PairingPanel(): ReactElement {
   }, [bridge]);
 
   if (!bridge) {
-    return <p>Pairing is unavailable — the preload bridge failed to load.</p>;
+    return (
+      <section className="card alert alert--danger">
+        <span className="body">Pairing is unavailable — the preload bridge failed to load.</span>
+      </section>
+    );
   }
 
   return (
-    <section>
-      <h2>Pair a phone</h2>
-      {status.kind === 'idle' && (
-        <p>
-          Scan a code with the FolderSync app on your phone to start backing up its folders here.
-        </p>
-      )}
-      {status.kind === 'error' && (
-        <p>Could not start pairing. Check the desktop logs and try again.</p>
-      )}
-      {status.kind === 'paired' && (
-        <p>Paired with {status.deviceName}. Add a folder below to back it up.</p>
-      )}
-      {status.kind === 'active' ? (
-        <div>
-          <img
-            src={status.presentation.qrImageDataUrl}
-            alt="Pairing code for the FolderSync phone app"
-            width={256}
-            height={256}
-          />
-          <p>
-            On {status.presentation.desktopName}.{' '}
-            {remainingLabel(status.presentation.expiresAt, nowMs)}
-          </p>
-          <button type="button" onClick={() => void cancel()}>
-            Cancel
-          </button>
+    <section className="card">
+      <div className="stack">
+        <div className="section-title">
+          <span className="chip chip--accent">
+            <QrCode size={20} />
+          </span>
+          <h2 className="title">Pair a phone</h2>
         </div>
-      ) : (
-        <button type="button" disabled={status.kind === 'starting'} onClick={() => void start()}>
-          {status.kind === 'starting' ? 'Starting…' : 'Show pairing code'}
-        </button>
-      )}
+
+        {status.kind === 'idle' && (
+          <p className="body muted">
+            Scan a code with the FolderSync app on your phone to start backing up its folders here.
+          </p>
+        )}
+        {status.kind === 'error' && (
+          <div className="alert alert--danger">
+            <CircleAlert size={16} />
+            <span className="caption">
+              Could not start pairing. Check the desktop logs and try again.
+            </span>
+          </div>
+        )}
+        {status.kind === 'paired' && (
+          <div className="alert alert--success">
+            <CircleCheck size={16} />
+            <span className="caption">
+              Paired with {status.deviceName}. Add a folder below to back it up.
+            </span>
+          </div>
+        )}
+
+        {status.kind === 'active' ? (
+          <div className="stack">
+            <img
+              className="qr"
+              src={status.presentation.qrImageDataUrl}
+              alt="Pairing code for the FolderSync phone app"
+              width={240}
+              height={240}
+            />
+            <p className="caption muted">
+              On {status.presentation.desktopName}.{' '}
+              {remainingLabel(status.presentation.expiresAt, nowMs)}
+            </p>
+            <button type="button" className="btn btn--ghost" onClick={() => void cancel()}>
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={status.kind === 'starting'}
+            onClick={() => void start()}
+          >
+            <QrCode size={18} />
+            {status.kind === 'starting' ? 'Starting…' : 'Show pairing code'}
+          </button>
+        )}
+      </div>
     </section>
   );
 }
