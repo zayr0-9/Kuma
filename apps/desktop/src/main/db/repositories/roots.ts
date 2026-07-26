@@ -57,6 +57,8 @@ export interface RootsRepository {
   getByMappingId(mappingId: string): RootMappingRow | null;
   getByPhoneRoot(phoneDeviceId: string, phoneRootId: string): RootMappingRow | null;
   bind(input: BindRootMappingInput): void;
+  // Detach the phone root from a mapping so the destination is bindable again (spec 25.1).
+  unbind(mappingId: string, updatedAt: string): void;
   listDestinations(): RootDestination[];
   listByDevice(phoneDeviceId: string): RootMappingRow[];
   // Every mapping, newest first — the flat device-agnostic view the desktop
@@ -81,6 +83,14 @@ export function createRootsRepository(db: Database): RootsRepository {
       phone_root_id = ?,
       phone_retention_policy = ?,
       desktop_deletion_policy = ?,
+      updated_at = ?
+    WHERE mapping_id = ?
+  `);
+  const unbindStmt = db.prepare(`
+    UPDATE root_mapping SET
+      phone_root_id = NULL,
+      phone_retention_policy = NULL,
+      desktop_deletion_policy = NULL,
       updated_at = ?
     WHERE mapping_id = ?
   `);
@@ -114,6 +124,9 @@ export function createRootsRepository(db: Database): RootsRepository {
         input.updatedAt,
         input.mappingId,
       );
+    },
+    unbind: (mappingId, updatedAt) => {
+      unbindStmt.run(updatedAt, mappingId);
     },
     listDestinations: () =>
       destinationsStmt.all().map((raw) => {

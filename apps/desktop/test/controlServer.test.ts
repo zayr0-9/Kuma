@@ -500,6 +500,81 @@ describe('GET /v1/roots/available', () => {
   });
 });
 
+function unbindBody(mappingId: string): string {
+  return JSON.stringify({ requestId: REQ, mappingId });
+}
+
+describe('POST /v1/roots/unbind', () => {
+  it('unbinds a bound mapping so it returns to the available list', async () => {
+    bindMapping(MAP1, ROOT1, '/backups/camera');
+    const res = await call('POST', '/v1/roots/unbind', registerHeaders(), unbindBody(MAP1));
+    expect(res.status).toBe(200);
+    expect(res.json()).toEqual({ mappingId: MAP1, status: 'unbound' });
+
+    // The binding is cleared: no phone root, policies reset.
+    const mapping = createRepositories(db).roots.getByMappingId(MAP1);
+    expect(mapping?.phoneRootId).toBeNull();
+    expect(mapping?.phoneRetentionPolicy).toBeNull();
+
+    // And it is now offered as a bindable destination again.
+    freeSpaceBytes = 1_000;
+    const available = await call('GET', '/v1/roots/available', authHeaders());
+    expect(
+      rootsAvailableResponseSchema.parse(available.json()).destinations.map((d) => d.mappingId),
+    ).toContain(MAP1);
+  });
+
+  it('is idempotent for an already-unbound mapping', async () => {
+    approveMapping(MAP1, '/backups/camera'); // created unbound
+    const res = await call('POST', '/v1/roots/unbind', registerHeaders(), unbindBody(MAP1));
+    expect(res.status).toBe(200);
+    expect(res.json()).toEqual({ mappingId: MAP1, status: 'unbound' });
+  });
+
+  it('rejects an unknown mapping with root_not_mapped', async () => {
+    const res = await call('POST', '/v1/roots/unbind', registerHeaders(), unbindBody(MAP1));
+    expect(res.status).toBe(404);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('root_not_mapped');
+  });
+
+  it("rejects another device's mapping as root_not_mapped", async () => {
+    createRepositories(db).devices.insert({
+      phoneDeviceId: 'phone-2',
+      phoneDisplayName: 'Other',
+      tokenHash: hashToken('other-token'),
+      pairedAt: CLOCK,
+    });
+    bindMapping(MAP1, ROOT1, '/backups/other', 'phone-2');
+    const res = await call('POST', '/v1/roots/unbind', registerHeaders(), unbindBody(MAP1));
+    expect(res.status).toBe(404);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('root_not_mapped');
+    // The foreign mapping is untouched.
+    expect(createRepositories(db).roots.getByMappingId(MAP1)?.phoneRootId).toBe(ROOT1);
+  });
+
+  it('rejects a malformed unbind body', async () => {
+    const res = await call(
+      'POST',
+      '/v1/roots/unbind',
+      registerHeaders(),
+      JSON.stringify({ requestId: REQ }),
+    );
+    expect(res.status).toBe(400);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('bad_request');
+  });
+
+  it('requires authentication', async () => {
+    const res = await call(
+      'POST',
+      '/v1/roots/unbind',
+      { [HEADER_PROTOCOL]: '1' },
+      unbindBody(MAP1),
+    );
+    expect(res.status).toBe(401);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('unauthorised');
+  });
+});
+
 const FILE_ENTRY = 'ffffffff-6666-4666-8666-666666666666';
 const OTHER_UUID = '12121212-9999-4999-8999-999999999999';
 const SHA = 'a'.repeat(64);

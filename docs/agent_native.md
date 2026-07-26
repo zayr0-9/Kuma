@@ -95,16 +95,38 @@ fixtures in `packages/test-fixtures` (see [`agent_protocol.md`](agent_protocol.m
   the desktop's new `GET /v1/roots/available` (lists this device's unbound mappings so the
   phone can bind). Design + on-device checklist:
   [spike-5](architecture-decisions/spike-5-tus-upload.md).
-- **Build status:** spikes 1-4 compiled green on EAS and are **device-verified** (Samsung
-  SM-S948B — SAF, service, discovery, pairing all pass). Spike 5 + roots binding is written
-  but the Kotlin has never compiled here (no Android toolchain, spec 32.1) — the next EAS
-  build is its first compile; record the pass conditions on the Samsung.
-- Next: the real scan engine + Room DB (spec 16, 17) turn spike 1's traversal and spike 2's
-  tick into persisted `file_entry`/`transfer_job` state (the upload state currently lives in
-  memory + the tus URL store), and the service's real work (discovery loop, scan, upload,
-  cleanup — spec 14.1) replaces the tick and drives `UploadManager`. The discovery,
-  pinned-TLS and tus clients here are that engine's building blocks. **Room + KSP is
-  intentionally its own branch** so a failed annotation-processor build isolates one concern.
+- **Real phone engine (spec 16-18) implemented** — the durable engine now sits on the spike
+  transport. **Room is the source of truth** (`db/`): `SyncEntities.kt`
+  (`sync_root`/`scan_run`/`file_entry`/`transfer_job`/`sync_event`), blocking `SyncDaos.kt`,
+  `FolderSyncDatabase.kt`, and `SyncStore.kt` — the facade owning every transactional transition
+  (spec 16.2: scan completion + missing marking, commit + `remoteVersionId`). `deletion_event` +
+  `paired_device` are deferred (deletion is spec 19; pairing already persists via `TokenVault`).
+  **`SyncEngine.kt`** is the loop: `scanRoot` (new generation, access re-check, BFS
+  `DocumentsContract` traverse, candidate rules 17.3, 45s quiescence, two-observation missing
+  confirmation with the 15-min floor 17.5, transactional `finishScan`) + `drainTransfers`
+  (claim → upload → commit), serialised on one `ReentrantLock` (one upload/phone, spec 18.3).
+  **`UploadManager` was folded into `TusTransport`** — identical proven pinned-TLS resumable tus,
+  now driven by a `transfer_job` row, returning a `TransferResult` the engine maps onto Room.
+  The **`FolderSyncService` worker now drives `SyncEngine.runSync`** (replacing the spike tick);
+  JS `syncNow` runs it on a detached thread; `buildNotification` reads only the in-memory
+  `SyncEngine.activeTransfer()` (never Room — it also runs on the main thread). Module surface
+  swapped the single-shot upload calls for `addRoot`/`listRoots`/`setRootEnabled`/`removeRoot`
+  (removeRoot best-effort `unbindRoot`s the desktop)/`syncNow`/`getTransfers`/`getSyncEvents`;
+  `ControlClient` gained `unbindRoot` (`POST /v1/roots/unbind`). Decision:
+  [`architecture-decisions/room-ksp-expo-module.md`](architecture-decisions/room-ksp-expo-module.md).
+- **Room + KSP wiring:** the Expo local module's `build.gradle` adds the KSP plugin via a nested
+  `buildscript` classpath (`com.google.devtools.ksp:symbol-processing-gradle-plugin` at
+  `rootProject.ext.kspVersion`, fallback `2.1.20-2.0.1` — the **KSP2** build Expo's `KSPLookup`
+  maps to the pinned Kotlin 2.1.20) + `applyKspJvmToolchain()`, then `androidx.room:room-runtime`
+  - `ksp androidx.room:room-compiler` at **2.7.1** (first Room line with native KSP2 support;
+    2.6.x is KSP1-only). Expo resolves the version but does NOT apply the plugin — the module must.
+- **Build status:** spikes 1-5 are **device-verified** (Samsung SM-S948B). The real engine is
+  **compile-verified on EAS** (build `2091ec4b` FINISHED — the KSP2/Room 2.7 combo builds clean)
+  but **not yet device-tested**: the first whole-folder scan→upload run is the next on-device
+  check (spikes were single-file). The APK from that build + Metro loads the new JS.
+- Next: retention cleanup / delete-after-verified-backup + `deletion_event` propagation
+  (spec 19); auto-start the service from the Folders screen; batch Room writes for very large
+  first scans.
 
 ## Update this file when
 

@@ -66,6 +66,10 @@ export {
   type AvailableDestination,
   rootsAvailableResponseSchema,
   type RootsAvailableResponse,
+  rootUnbindRequestSchema,
+  type RootUnbindRequest,
+  rootUnbindResponseSchema,
+  type RootUnbindResponse,
 } from './roots.ts';
 
 export {

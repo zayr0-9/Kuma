@@ -6,6 +6,7 @@ export const ENDPOINTS = {
   device: `${API_BASE}/device`,
   rootsAvailable: `${API_BASE}/roots/available`,
   rootsRegister: `${API_BASE}/roots/register`,
+  rootsUnbind: `${API_BASE}/roots/unbind`,
   filesPrepare: `${API_BASE}/files/prepare`,
   filesDelete: `${API_BASE}/files/delete`,
   syncStatus: `${API_BASE}/sync/status`,

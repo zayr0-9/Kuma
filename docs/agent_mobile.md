@@ -47,17 +47,23 @@ boundary), 32.2 (EAS workflow). UI changes also require
   wraps spike-3 DNS-SD discovery (`startDiscovery`/`stopDiscovery`/`getDiscoveredDesktops`,
   pull model); `src/native/pairing.ts` wraps spike-4 pinned-TLS pairing
   (`startPairingFromQr` → discriminated `PairingResult`, `listPairedDevices`,
-  `removePairedDevice`); `src/native/upload.ts` wraps the spike-5 roots-binding + tus
-  surface (`listAvailableDestinations`, `registerRoot`, `startUpload`/`getUploadStatus`/
-  `cancelUpload` — pull-model progress). The bearer token/pin never cross to JS.
-- **Spike diagnostic harnesses** (route in `app/_layout.tsx`, linked from the home
-  screen; developer diagnostics screens with intentional raw/absolute values per
-  agent_design §4 — NOT product surfaces, so the §5 parity checklist does not apply):
-  `app/spike-saf.tsx` (SAF), `app/spike-service.tsx` (foreground service),
-  `app/spike-pairing.tsx` (discovery list + pairing + paired-device list/remove), and
-  `app/spike-upload.tsx` (pick folder → bind to a desktop destination → upload one file over
-  resumable tus with a live progress bar). All use the shared `src/components/SpikeButton.tsx`
-  (48dp touch target).
+  `removePairedDevice`); `src/native/engine.ts` wraps the roots-binding + scan/upload engine
+  (`listAvailableDestinations`, `addRoot`, `listRoots`, `setRootEnabled`, `removeRoot`,
+  `syncNow`, `getTransfers`, `getSyncEvents` — pull-model). The bearer token/pin never cross
+  to JS. (`src/native/upload.ts` and the single-shot upload calls it wrapped are gone — folded
+  into the engine.)
+- **Product screens (first pass):** `app/folders.tsx` (spec 5.2/5.5 — persisted roots with
+  per-root status; add-folder = pick a directory → choose a desktop destination + the two
+  policies → bind + persist → kick a sync; pause/resume via a Switch; remove with a confirm) and
+  `app/transfers.tsx` (spec 5.5 — the active upload with a live progress bar, the queued/failed
+  jobs, and recent history). Both poll the native engine (pull model). The home screen links
+  them above a "Diagnostics" section.
+- **Spike diagnostic harnesses** (developer diagnostics screens with intentional raw/absolute
+  values per agent_design §4 — NOT product surfaces, so the §5 parity checklist does not apply):
+  `app/spike-saf.tsx` (SAF), `app/spike-service.tsx` (foreground service), `app/spike-pairing.tsx`
+  (discovery list + pairing + paired-device list/remove). All use the shared
+  `src/components/SpikeButton.tsx` (48dp touch target). (`app/spike-upload.tsx` was retired — its
+  flow is now the Folders/Transfers screens.)
 - **`expo-camera` (`~57.0.3`) is used for in-app pairing-QR scanning** (`CameraView` +
   `useCameraPermissions`; config plugin + camera-permission rationale in `app.config.ts`).
   This is required, not cosmetic: the app's deep-link `scheme` is `foldersync` (app.config.ts),

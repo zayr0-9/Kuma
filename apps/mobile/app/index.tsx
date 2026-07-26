@@ -10,22 +10,26 @@ export default function HomeScreen(): ReactElement {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>FolderSync</Text>
-      <Text>Skeleton build — folders, pairing and transfers arrive with the next phases.</Text>
+      <Text>Pair a desktop, add a folder, and it backs up over your LAN.</Text>
       <Text>
         Native module:{' '}
         {nativeStatus.ok ? nativeStatus.reply : `not linked (${nativeStatus.reason})`}
       </Text>
-      <Link href="/spike-saf" style={styles.link}>
-        Open SAF spike
+      <Link href="/folders" style={styles.primaryLink}>
+        Folders
       </Link>
-      <Link href="/spike-service" style={styles.link}>
-        Open foreground-service spike
+      <Link href="/transfers" style={styles.link}>
+        Transfers
       </Link>
       <Link href="/spike-pairing" style={styles.link}>
-        Open discovery + pairing spike
+        Pair a desktop
       </Link>
-      <Link href="/spike-upload" style={styles.link}>
-        Open upload + roots-binding spike
+      <Text style={styles.diagnostics}>Diagnostics</Text>
+      <Link href="/spike-saf" style={styles.link}>
+        SAF access
+      </Link>
+      <Link href="/spike-service" style={styles.link}>
+        Foreground service
       </Link>
       <StatusBar style="auto" />
     </View>
@@ -43,6 +47,19 @@ const styles = StyleSheet.create({
     color: '#1d4ed8',
     fontWeight: '600',
     paddingVertical: 8,
+  },
+  primaryLink: {
+    color: '#1d4ed8',
+    fontSize: 18,
+    fontWeight: '700',
+    paddingVertical: 8,
+  },
+  diagnostics: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 12,
+    textTransform: 'uppercase',
   },
   title: {
     fontSize: 24,
