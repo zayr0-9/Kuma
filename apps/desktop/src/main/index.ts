@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { startBackend, type Backend } from './backend.ts';
+import { createElectronThumbnailer } from './images/electronThumbnailer.ts';
 import { registerPairingIpc } from './ui/ipc.ts';
 import { registerDestinationsIpc } from './ui/destinationsIpc.ts';
 import { registerStatusIpc } from './ui/statusIpc.ts';
@@ -58,6 +59,9 @@ void app.whenReady().then(async () => {
     backend = await startBackend({
       userDataDir: app.getPath('userData'),
       displayName: hostname(),
+      // Electron-backed gallery thumbnails cached under userData (spec 22.4). Constructed
+      // here (the only electron-aware file) and injected so the backend stays testable.
+      thumbnails: createElectronThumbnailer(join(app.getPath('userData'), 'thumbnails')),
       // A STABLE control-server port so the phone's stored pairing target stays valid
       // across desktop restarts (an OS-assigned port 0 moves every launch, stranding a
       // paired phone at a dead port). Overridable via FOLDERSYNC_PORT; the desktop

@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import Fastify, { type FastifyInstance } from 'fastify';
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import {
   deviceResponseSchema,
   fileDeleteRequestSchema,
   fileDeleteResponseSchema,
+  FILES_LIST_DEFAULT_LIMIT,
+  filesListRequestSchema,
+  filesListResponseSchema,
   healthResponseSchema,
   pairRequestSchema,
   pairResponseSchema,
@@ -20,6 +25,8 @@ import {
 } from '@foldersync/contracts';
 import {
   ENDPOINTS,
+  FILES_CONTENT_ROUTE,
+  FILES_THUMBNAIL_ROUTE,
   HEADER_PROTOCOL,
   HEADER_REQUEST_ID,
   PROTOCOL_VERSION,
@@ -27,16 +34,19 @@ import {
 import {
   isTerminalPrepareState,
   type PairedDeviceRow,
+  type RemoteFileRow,
   type Repositories,
   type RootMappingRow,
 } from '../db/index.ts';
 import type { PairingWindow } from '../auth/pairingWindow.ts';
 import type { PairingCompletedEvent } from '../../shared/pairing.ts';
 import type { CommitCoordinator } from '../sync/commitCoordinator.ts';
+import type { ThumbnailProvider } from '../images/thumbnailer.ts';
 import { generateBearerToken, hashToken } from '../auth/token.ts';
 import { createDeleteService } from '../sync/deleteService.ts';
 import { freeBytesOnVolume } from '../storage/diskSpace.ts';
 import { findDestinationOverlap } from '../storage/destinationOverlap.ts';
+import { imageContentType } from '../storage/imageTypes.ts';
 import { isReservedRelativePath } from '../storage/layout.ts';
 import { resolveDestinationPath } from '../storage/pathSafety.ts';
 import { ApiError, buildErrorResponse } from './errors.ts';
@@ -76,6 +86,10 @@ export interface ControlServerContext {
   // it a finished upload rests in the `uploaded` state (the tus-fold behaviour); the
   // main process supplies one so uploads become visible.
   commitCoordinator?: CommitCoordinator;
+  // Generates and caches remote-gallery thumbnails (spec 22.4). Injected by the main
+  // process (Electron `nativeImage`); when absent, the thumbnail route serves the original
+  // bytes so the gallery still works in tests and headless runs.
+  thumbnails?: ThumbnailProvider;
   // Injectable clock so last-seen and pairing timestamps are deterministic in tests.
   now?: () => Date;
 }
@@ -105,6 +119,37 @@ function normaliseRequestId(header: unknown): string {
     if (parsed.success) return parsed.data;
   }
   return randomUUID();
+}
+
+// Remote-gallery thumbnail longest-edge bound (spec 6.6): default, and clamps for the
+// optional `size` query so a phone cannot ask for an unbounded render.
+const THUMBNAIL_DEFAULT_SIZE = 320;
+const THUMBNAIL_MIN_SIZE = 64;
+const THUMBNAIL_MAX_SIZE = 1024;
+
+function parseThumbnailSize(raw: unknown): number {
+  const value = typeof raw === 'string' ? Number(raw) : Number.NaN;
+  if (!Number.isInteger(value)) return THUMBNAIL_DEFAULT_SIZE;
+  return Math.min(THUMBNAIL_MAX_SIZE, Math.max(THUMBNAIL_MIN_SIZE, value));
+}
+
+// Opaque keyset cursor for the gallery listing: the last page's (committedAt, id), base64url
+// of `committedAt|id` (neither an ISO timestamp nor a uuid contains `|`). Opaque on the wire
+// so the pagination scheme can change without a contract change. A malformed cursor decodes
+// to null and the route rejects it.
+function encodeGalleryCursor(committedAt: string, id: string): string {
+  return Buffer.from(`${committedAt}|${id}`, 'utf8').toString('base64url');
+}
+
+function decodeGalleryCursor(cursor: string): { committedAt: string; id: string } | null {
+  try {
+    const raw = Buffer.from(cursor, 'base64url').toString('utf8');
+    const sep = raw.indexOf('|');
+    if (sep <= 0 || sep === raw.length - 1) return null;
+    return { committedAt: raw.slice(0, sep), id: raw.slice(sep + 1) };
+  } catch {
+    return null;
+  }
 }
 
 export function createControlServer(context: ControlServerContext): FastifyInstance {
@@ -627,6 +672,157 @@ export function createControlServer(context: ControlServerContext): FastifyInsta
       mappings,
       pendingCommits: repositories.files.countPendingCommits(),
     });
+  });
+
+  // Resolve a fileId from the phone to its committed row + absolute path, checking the
+  // authenticated device owns it (spec 25.1) and the path is still safe (spec 22.1).
+  // Unknown/foreign/non-committed files all report file_not_found identically so existence
+  // is never leaked. Shared by the thumbnail and content routes.
+  function resolveOwnedGalleryFile(request: FastifyRequest): {
+    row: RemoteFileRow;
+    absolutePath: string;
+  } {
+    const device = request.pairedDevice;
+    if (device === null) {
+      throw new ApiError('unauthorised', 'Not authenticated', { httpStatus: 401 });
+    }
+    const params = request.params as { fileId?: unknown };
+    const idParse = uuidSchema.safeParse(params.fileId);
+    if (!idParse.success) {
+      throw new ApiError('bad_request', 'Malformed file id', { httpStatus: 400 });
+    }
+    const row = repositories.files.getRemoteFileById(idParse.data);
+    if (row === null || row.phoneDeviceId !== device.phoneDeviceId || row.state !== 'committed') {
+      throw new ApiError('file_not_found', 'Unknown file', { httpStatus: 404 });
+    }
+    const mapping = repositories.roots.getByPhoneRoot(device.phoneDeviceId, row.rootId);
+    if (mapping === null) {
+      throw new ApiError('file_not_found', 'Unknown file', { httpStatus: 404 });
+    }
+    const resolved = resolveDestinationPath(mapping.destinationRoot, row.relativePath);
+    if (!resolved.ok || isReservedRelativePath(resolved.relativePath)) {
+      throw new ApiError('invalid_relative_path', 'Rejected relative path', { httpStatus: 400 });
+    }
+    return { row, absolutePath: resolved.absolutePath };
+  }
+
+  // Stream a committed file's bytes with its length and content type. A missing/unreadable
+  // file (volume unplugged, file removed externally) is a calm, retryable
+  // destination_unavailable — never a 500 and never leaking the absolute path (spec 30).
+  async function sendFileBytes(
+    reply: FastifyReply,
+    absolutePath: string,
+    contentType: string,
+  ): Promise<FastifyReply> {
+    let size: number;
+    try {
+      size = (await stat(absolutePath)).size;
+    } catch {
+      throw new ApiError('destination_unavailable', 'File is not available', {
+        httpStatus: 503,
+        retryable: true,
+      });
+    }
+    return reply
+      .type(contentType)
+      .header('content-length', String(size))
+      .send(createReadStream(absolutePath));
+  }
+
+  // GET /v1/files/list (spec 25.2, 6.6): a page of a bound root's committed image files for
+  // the remote gallery, newest first, scoped to the authenticated device's own root. Opaque
+  // keyset cursor; no absolute path is ever returned (spec 30).
+  app.get(ENDPOINTS.filesList, (request) => {
+    const device = request.pairedDevice;
+    if (device === null) {
+      throw new ApiError('unauthorised', 'Not authenticated', { httpStatus: 401 });
+    }
+    const parsed = filesListRequestSchema.safeParse(request.query);
+    if (!parsed.success) {
+      throw new ApiError('bad_request', 'Malformed list query', { httpStatus: 400 });
+    }
+    const { rootId, cursor, limit } = parsed.data;
+
+    // Only a root bound to this device resolves (spec 25.1); unknown/foreign are identical.
+    if (repositories.roots.getByPhoneRoot(device.phoneDeviceId, rootId) === null) {
+      throw new ApiError('root_not_mapped', 'Unknown root', { httpStatus: 404 });
+    }
+
+    let decodedCursor: { committedAt: string; id: string } | null = null;
+    if (cursor !== undefined) {
+      decodedCursor = decodeGalleryCursor(cursor);
+      if (decodedCursor === null) {
+        throw new ApiError('bad_request', 'Malformed cursor', { httpStatus: 400 });
+      }
+    }
+
+    const pageSize = limit ?? FILES_LIST_DEFAULT_LIMIT;
+    const rows = repositories.files.listCommittedImages(device.phoneDeviceId, rootId, {
+      limit: pageSize,
+      cursor: decodedCursor,
+    });
+
+    const items = rows.flatMap((row) => {
+      // A committed image always has these; skip defensively rather than emit a bad item.
+      if (
+        row.currentVersionId === null ||
+        row.committedAt === null ||
+        row.sha256 === null ||
+        row.size === null
+      ) {
+        return [];
+      }
+      return [
+        {
+          fileId: row.id,
+          versionId: row.currentVersionId,
+          relativePath: row.relativePath,
+          name: row.relativePath.split('/').pop() ?? row.relativePath,
+          size: row.size,
+          sha256: row.sha256,
+          contentType: imageContentType(row.relativePath),
+          committedAt: row.committedAt,
+        },
+      ];
+    });
+
+    // A full page means there may be more; page from the last DB row (not the filtered
+    // items) so a skipped row never strands the cursor.
+    const lastRow = rows.at(-1);
+    const nextCursor =
+      rows.length === pageSize && lastRow?.committedAt != null
+        ? encodeGalleryCursor(lastRow.committedAt, lastRow.id)
+        : null;
+
+    return Promise.resolve(filesListResponseSchema.parse({ items, nextCursor }));
+  });
+
+  // GET /v1/files/:fileId/thumbnail (spec 25.2, 6.6): a downscaled thumbnail (image bytes)
+  // for one owned committed file. Uses the injected thumbnailer; on a decode miss or when no
+  // provider is wired, falls back to the original bytes (spec 22.4).
+  app.get(FILES_THUMBNAIL_ROUTE, async (request, reply) => {
+    const { row, absolutePath } = resolveOwnedGalleryFile(request);
+    const size = parseThumbnailSize((request.query as { size?: unknown }).size);
+
+    if (context.thumbnails !== undefined) {
+      // A generation error falls through to the original bytes — a thumbnail miss must
+      // never fail the request (spec 22.4).
+      const result = await context.thumbnails
+        .getThumbnail({ absolutePath, versionId: row.currentVersionId ?? row.id, maxSize: size })
+        .catch(() => null);
+      if (result !== null) {
+        return reply.type(result.contentType).send(result.body);
+      }
+    }
+
+    return sendFileBytes(reply, absolutePath, imageContentType(row.relativePath));
+  });
+
+  // GET /v1/files/:fileId/content (spec 25.2, 6.6): the full bytes of one owned committed
+  // file, for full-resolution viewing and download.
+  app.get(FILES_CONTENT_ROUTE, async (request, reply) => {
+    const { row, absolutePath } = resolveOwnedGalleryFile(request);
+    return sendFileBytes(reply, absolutePath, imageContentType(row.relativePath));
   });
 
   // tus upload transport (spec 18.4/18.5): authenticated by the onRequest hook like

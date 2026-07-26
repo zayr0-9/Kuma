@@ -449,4 +449,44 @@ describe('files repository', () => {
     expect(repos.files.getRemoteVersion(first.versionId)?.supersededAt).toBe(T1);
     expect(repos.files.getRemoteVersion(second.versionId)?.supersededAt).toBeNull();
   });
+
+  it('lists committed images newest-first, filters non-images, and keyset-paginates', () => {
+    const record = (relativePath: string, committedAt: string) =>
+      repos.files.recordCommittedVersion({
+        phoneDeviceId: 'dev-1',
+        rootId: 'root-1',
+        fileEntryId: 'file-1',
+        relativePath,
+        sha256: 'a'.repeat(64),
+        size: 1024,
+        committedAt,
+      });
+
+    record('Camera/a.jpg', T0);
+    const tieA = record('Camera/b.jpg', T1); // two images share a commit time → id tie-break
+    const tieB = record('Camera/c.png', T1);
+    record('Notes/n.txt', T1); // excluded: not an image
+
+    const all = repos.files.listCommittedImages('dev-1', 'root-1', { limit: 10, cursor: null });
+    expect(all).toHaveLength(3);
+    expect(all.map((r) => r.relativePath)).not.toContain('Notes/n.txt');
+    expect(all[2]?.relativePath).toBe('Camera/a.jpg'); // oldest last
+    const newestIds = [all[0]?.id, all[1]?.id];
+    expect(newestIds).toContain(tieA.remoteFileId);
+    expect(newestIds).toContain(tieB.remoteFileId);
+
+    // Keyset continuation never repeats or skips a row tied on committedAt.
+    const firstPage = repos.files.listCommittedImages('dev-1', 'root-1', {
+      limit: 1,
+      cursor: null,
+    });
+    const head = firstPage[0];
+    if (head === undefined || head.committedAt === null) throw new Error('expected a row');
+    const rest = repos.files.listCommittedImages('dev-1', 'root-1', {
+      limit: 10,
+      cursor: { committedAt: head.committedAt, id: head.id },
+    });
+    expect(rest.map((r) => r.id)).not.toContain(head.id);
+    expect(new Set([head.id, ...rest.map((r) => r.id)]).size).toBe(3);
+  });
 });

@@ -82,3 +82,39 @@ export const fileDeleteResponseSchema = z.object({
   trashPath: z.string().nullable(),
 });
 export type FileDeleteResponse = z.infer<typeof fileDeleteResponseSchema>;
+
+// GET /v1/files/list (spec 25.2, 6.6): the remote-gallery listing of a bound root's
+// committed image files, scoped server-side to the authenticated device's own root.
+// Query params (Fastify supplies them as strings, hence the coercion on `limit`);
+// `cursor` is the opaque keyset token echoed from a prior response's `nextCursor`.
+export const FILES_LIST_MAX_LIMIT = 100;
+export const FILES_LIST_DEFAULT_LIMIT = 60;
+export const filesListRequestSchema = z.object({
+  rootId: uuidSchema,
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(FILES_LIST_MAX_LIMIT).optional(),
+});
+export type FilesListRequest = z.infer<typeof filesListRequestSchema>;
+
+// One backed-up image the phone can view/download (spec 6.6). `versionId` is the immutable
+// remote version — the phone keys its thumbnail/image cache on it, so a re-backed-up file
+// (new version) misses the stale cache and refetches. No absolute desktop path (spec 30).
+export const remoteImageItemSchema = z.object({
+  fileId: uuidSchema,
+  versionId: uuidSchema,
+  relativePath: wirePathSchema,
+  name: z.string().min(1),
+  size: z.number().int().nonnegative(),
+  sha256: sha256HexSchema,
+  contentType: z.string().min(1),
+  committedAt: isoDateTimeSchema,
+});
+export type RemoteImageItem = z.infer<typeof remoteImageItemSchema>;
+
+// `nextCursor` is null on the last page; otherwise it is passed back as `cursor` to fetch
+// the next page (spec 29.2 pagination — never a full-tree dump across the wire).
+export const filesListResponseSchema = z.object({
+  items: z.array(remoteImageItemSchema),
+  nextCursor: z.string().min(1).nullable(),
+});
+export type FilesListResponse = z.infer<typeof filesListResponseSchema>;

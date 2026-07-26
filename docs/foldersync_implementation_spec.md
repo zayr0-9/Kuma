@@ -99,6 +99,8 @@ The following are explicitly out of scope for the initial implementation:
 - Permanent deletion of desktop files immediately after a phone deletion.
 - Deduplication across unrelated selected roots in version one.
 
+Automatic two-way synchronisation stays out of scope. Letting the user **browse and download** their already-backed-up files from the phone on demand is a read-only companion capability (section 6.6), not reverse synchronisation: nothing is pushed to the phone automatically and desktop state is never altered by it.
+
 These can be considered later only after the Android-to-one-desktop vertical slice is reliable.
 
 ---
@@ -189,6 +191,7 @@ Never show an inaccessible folder as “empty”.
 - **Home:** service state, connected desktop, total pending files/bytes and recent errors.
 - **Folders:** selected roots with per-root status and actions.
 - **Add/edit folder:** launches system picker, sets destination mapping and the two policies.
+- **Folder gallery:** browses the images already backed up for a folder as a lazy-loaded thumbnail grid; opens one full-screen to pan/zoom and swipe between images; downloads any back to the phone's photo library (section 6.6).
 - **Transfers:** active, queued, completed and failed jobs with retry/cancel controls.
 - **History:** user-readable operational events, not raw logs.
 - **Settings:** automatic sync, Wi-Fi-only behaviour, notification permission, battery-management guidance (section 14.8), diagnostics and paired devices.
@@ -264,6 +267,15 @@ Before replacing an existing destination file, compare it with the last version 
 - If it differs from the last committed version but its SHA-256 equals the staged upload's SHA-256: adopt the existing file in place, record the commit against it and skip both the conflict copy and the replacement. This prevents a conflict explosion when a re-paired or reinstalled phone re-uploads content that already exists at the destination.
 - If changed externally and the content differs: first move the current file to `.foldersync-conflicts` or a version-history location, then commit the phone version.
 - If the filesystem cannot atomically move within the destination volume: fail safely and do not acknowledge the phone upload as committed.
+
+### 6.6 Remote read access and restore
+
+The desktop holds the authoritative copy of every backed-up file, including files the phone has since removed under `delete_after_verified_backup`. FolderSync lets the user browse and retrieve those copies from the phone on demand:
+
+- The phone lists a folder's committed image files from the desktop (paginated, lazy-loaded thumbnails generated on the desktop). It does not keep its own copy of the desktop inventory — the desktop is the source of truth for what is backed up.
+- The user may open a file full-screen (pan/zoom, swipe between images) and download it back to the phone's photo library.
+
+This is read-only and user-initiated. It does not weaken one-way authority (section 6.3): no file is pushed to the phone automatically, a download never deletes or alters the desktop copy, and it is not reverse synchronisation. Version one covers images; other media types are deferred.
 
 ---
 
@@ -649,6 +661,14 @@ export interface FolderSyncNativeModule {
 
   retryTransfer(transferId: string): Promise<void>;
   cancelTransfer(transferId: string): Promise<void>;
+
+  // Remote gallery / restore (section 6.6). The desktop is the source of truth; the phone
+  // pages the listing and fetches desktop-generated thumbnails / full images into a local
+  // cache, returning file URIs the UI renders. The bearer token and pinned TLS stay native.
+  listRemoteImages(input: RemoteImageQuery): Promise<RemoteImagePageDto>;
+  fetchThumbnail(fileId: string, versionId: string): Promise<LocalMediaUriDto>;
+  fetchRemoteImage(fileId: string, versionId: string): Promise<LocalMediaUriDto>;
+  downloadRemoteImage(input: DownloadImageInput): Promise<DownloadImageResultDto>;
 }
 ```
 
@@ -1316,6 +1336,10 @@ No staged file may be owned implicitly. On startup and periodically, the desktop
 
 Prepare records and their tus uploads must live long enough to serve the product's headline feature: a multi-gigabyte upload over flaky Wi-Fi can span days. Default prepare lifetime: seven days, renewable while the phone is actively retrying the transfer. Expiry is tied to this staging cleanup policy, not to short HTTP-session assumptions.
 
+### 22.4 Thumbnail cache
+
+Gallery thumbnails (section 6.6) are generated on demand from the committed file using Electron's built-in `nativeImage` — no native image-library dependency — and cached in the desktop application's data directory, keyed by the immutable remote version id and the target size. The cache never lives inside a destination root, holds only derived data, and is safe to delete at any time. Formats `nativeImage` cannot decode fall back to serving the original bytes.
+
 ---
 
 ## 23. LAN discovery
@@ -1588,6 +1612,18 @@ Server rejects `retention_cleanup` as a remote delete request.
 
 Returns mapping health, pending commits and server disk-space state.
 
+#### `GET /v1/files/list`
+
+Lists a bound root's committed image files for the remote gallery (section 6.6), scoped to the authenticated device's own root. Paginated by an opaque cursor; each item carries the file id, relative path, size, SHA-256, current remote version id, commit time and content type. An absolute desktop path is never returned (section 30).
+
+#### `GET /v1/files/:fileId/thumbnail`
+
+Returns a downscaled thumbnail — image bytes, not JSON — for one committed file the authenticated device owns. An optional `size` query bounds the longest edge.
+
+#### `GET /v1/files/:fileId/content`
+
+Returns the full bytes of one committed file the authenticated device owns, for full-resolution viewing and download. Unknown or foreign file ids return `file_not_found` identically, so existence is not leaked.
+
 ### 25.3 Error model
 
 ```json
@@ -1617,6 +1653,7 @@ Required codes include:
 - `remote_version_conflict`
 - `upload_not_found`
 - `upload_expired`
+- `file_not_found`
 - `destination_unavailable`
 - `internal_error`
 

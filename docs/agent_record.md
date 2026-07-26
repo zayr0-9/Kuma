@@ -23,6 +23,47 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-26T16:35+0100 — feat/remote-gallery-api — Remote gallery: list/thumbnail/content endpoints + thumbnailer (spec 6.6, backend half)
+
+- **Done:** the desktop + wire half of the phone-side **remote gallery** (new spec **6.6**):
+  browse a folder's backed-up images from the phone — including files it has since removed
+  under delete_after_verified_backup — and download them. Read-only + user-initiated; does
+  not weaken one-way authority (§6.3). The Kotlin/native + mobile-UI half is the stacked
+  `feat/remote-gallery-mobile` follow-up.
+  - **Contracts/protocol:** `GET /v1/files/list` (paginated committed-image listing, opaque
+    keyset cursor) with `filesListRequest`/`remoteImageItem`/`filesListResponse` schemas + golden
+    fixtures; two **binary** routes `GET /v1/files/:fileId/thumbnail` and `.../content` (route
+    constants + concrete-url helpers in `@foldersync/protocol`); new error code `file_not_found`.
+  - **Desktop:** `files` repo gains `getRemoteFileById` + `listCommittedImages` (image-extension
+    filter, `(committedAt, id)` DESC keyset). Thumbnails via Electron **`nativeImage`** (no native
+    image dependency) behind an injected `ThumbnailProvider` — real impl
+    `images/electronThumbnailer.ts` with a userData disk cache keyed by versionId+size; the control
+    server stays electron-free and falls back to the original bytes when the provider is absent or
+    can't decode. Three authed routes on `controlServer.ts`, ownership-scoped (`file_not_found`
+    identically for foreign/unknown/non-committed), path-safe, `destination_unavailable` when the
+    bytes are gone from disk.
+- **Files:** `packages/protocol/src/{endpoints,errors,index}.ts`,
+  `packages/contracts/src/{files,index}.ts`, `packages/test-fixtures/fixtures/files-list-*`,
+  `packages/contracts/test/fixtures.test.ts`; `apps/desktop/src/main/storage/imageTypes.ts` (new),
+  `apps/desktop/src/main/images/{thumbnailer,electronThumbnailer}.ts` (new),
+  `apps/desktop/src/main/{db/repositories/files.ts,api/controlServer.ts,backend.ts,index.ts}`,
+  `apps/desktop/test/{filesGallery.test.ts (new),db.test.ts}`;
+  `docs/foldersync_implementation_spec.md` (§4, 5.5, 6.6, 13.2, 22.4, 25.2, 25.3).
+- **Gates:** contracts 80 + desktop 203 tests green; `pnpm -r typecheck` clean; real
+  `apps/desktop pnpm build` (electron stays external, thumbnailer + routes bundled); eslint +
+  `format:check` clean (last).
+- **PR:** `feat/remote-gallery-api` — open + squash-merge.
+- **Docs updated:** spec (above), `agent_protocol.md`, `agent_desktop.md`. `agent_design.md` /
+  `agent_mobile.md` / `agent_native.md` update with the mobile PR (no UI/native change landed here).
+- **Follow-ups:** **`feat/remote-gallery-mobile`** (stacked on this): Kotlin `ControlClient` +
+  `FolderSyncModule` gallery methods (list; fetch thumbnail/full image into cache → `file://` URIs;
+  MediaStore download into the phone's photo library), `foldersync-native` TS surface, mobile deps
+  (`react-native-gesture-handler` + `react-native-reanimated`), a thumbnail grid + full-screen
+  pan/zoom viewer, and a "View photos" action on the Folders card — **needs a new EAS build**.
+  Listing orders by committedAt (backup time), not capture date — a later nicety.
+
+---
+
 ### 2026-07-26T13:15+0100 — feat/ui-overhaul — UI/UX overhaul: "graphite + one spark" design system (both apps)
 
 - **Done:** replaced the beta-scaffolded look with one shared design language across mobile +
@@ -423,268 +464,3 @@ android` (1191 modules → Hermes). No new TS unit tests — the surface is Kotl
   real scan engine + Room DB (spec 16/17) turn this traversal into persisted `file_entry`
   state and wire the phone into Phase 1 (pair → pick → scan → upload → resume → status).
   Desktop side of Phase 1 remains complete and merged.
-
-### 2026-07-25T15:35+0100 — feature/phase1-pairing-completion — Pairing-completion push, main→renderer (spec 24.3/20.1)
-
-- **Done:** a completed pairing now reaches the UI live, retiring the manual Refresh. The
-  control server takes an optional `onPairingComplete(event)` callback, fired **only on a
-  successful `POST /v1/pair`** — after the secret is consumed and the device persisted —
-  with the phone's public identity only (`{deviceId, displayName, pairedAt}`); the issued
-  token and the pairing secret never enter the event (spec 20.1). `backend.ts` fans it
-  out through a plain listener `Set` (`backend.onPairingComplete(listener)` returns an
-  unsubscribe; keeps the backend electron-free). `main/ui/ipc.ts` subscribes and
-  `webContents.send`s `pairing:completed` to every window, unsubscribing on dispose.
-  Preload exposes `folderSync.pairing.onPaired(listener) → unsubscribe`, stripping the
-  `IpcRendererEvent` so the renderer only ever sees the payload. `PairingPanel` swaps the
-  QR for **"Paired with {name}. Add a folder below to back it up."**; `DestinationsPanel`
-  refreshes on the same event (manual Refresh kept as a fallback). Shared DTO
-  `PairingCompletedEvent` + the `completed` channel added to `src/shared/pairing.ts`. 2
-  new tests (controlServer: fires with the exact payload and asserts the serialised event
-  contains neither the token nor the secret on success; stays silent on a wrong-secret
-  and a malformed pair). 177 desktop / 249 workspace green; lint/typecheck/format clean.
-  **Verified by a real `pnpm build`** (preload emits `pairing:completed`).
-- **Design call:** the push is a one-way main→renderer event, distinct from the
-  `invoke`-style request bridges — the backend stays electron-free by emitting to a
-  listener set, and the only electron-aware piece (`webContents.send`) lives in the IPC
-  glue. Fired post-persist so the renderer's refresh always sees the new device. The
-  **manual-code** pairing fallback stays deferred (it would expose a typeable secret to
-  the renderer, against the governing hard rule — needs a short-code scheme first).
-- **Files:** `apps/desktop/src/shared/pairing.ts` (`completed` channel +
-  `PairingCompletedEvent`), `apps/desktop/src/main/api/controlServer.ts`
-  (`onPairingComplete` context + fire in pair route),
-  `apps/desktop/src/main/backend.ts` (listener set + `onPairingComplete`),
-  `apps/desktop/src/main/ui/ipc.ts` (subscribe + `webContents.send`),
-  `apps/desktop/src/preload/index.ts` (`onPaired`),
-  `apps/desktop/src/renderer/src/{PairingPanel.tsx,DestinationsPanel.tsx,env.d.ts}`,
-  `apps/desktop/test/controlServer.test.ts`.
-- **PR:** branch `feature/phase1-pairing-completion` pushed — open + squash-merge.
-- **Docs updated:** `agent_design.md` §7 (pairing-completion built + wording),
-  `agent_desktop.md` (pairing-completion state, trimmed "not yet built"), this record.
-- **Follow-ups:** the renderer push round trip (QR → "Paired with {name}" + destinations
-  auto-refresh) is owed a manual launch — the emit seam is unit-tested, the
-  `webContents.send`/`onPaired`/React wiring is not (same boundary as the other UI
-  slices). Next surfaces: the **history/events** view (spec §5 event rows — needs an
-  `event_log` repo + IPC), the **manual-code** pairing fallback (short-code scheme), and
-  destination **rename/remove** + phone-folder policy editing. Also open: safeStorage key
-  wrapping, `Upload-Length` vs `expected_size`, periodic staging GC, a hash-worker pool,
-  and splitting `controlServer.ts` into `api/routes/*` in the next slice that touches it.
-
-### 2026-07-25T14:42+0100 — feature/phase1-desktop-ui-last-synced — Last-synced on the destination card (spec 25.2, design §5)
-
-- **Done:** completes the §5 destination-card fields. A bound destination now shows
-  **"Last backed up {relative}"** (e.g. "Last backed up 2 minutes ago") or **"No backups
-  yet"** before its first commit. New repo read
-  `files.getLastCommittedAt(phoneDeviceId, rootId)` — `MAX(remote_file.committed_at)`,
-  ISO-UTC so MAX compares lexicographically; kept even for trashed files so it reflects
-  the last time anything was written here; null before any commit. It feeds a new
-  `lastSyncedAt` field on the existing `status:get` DTO — **no new IPC channel**, so the
-  preload is unchanged. Rendered with a new pure `formatRelativeTime(iso, nowMs)` in
-  `src/shared/format.ts` (`Date.now()` injected for testability; future/clock-skew and
-  just-now both read "just now"; relative per §4, absolute stays in history/diagnostics).
-  5 new tests (statusController: last-synced reflects the most recent commit, null before
-  any; formatRelativeTime matrix incl. singular/plural, days, future, unparseable). 175
-  desktop / 247 workspace green; lint/typecheck/format clean. **Verified by a real `pnpm
-build`**.
-- **Design call:** "last synced" is sourced from `remote_file.committed_at` (the current
-  truth per path, retained through trash) rather than joining `remote_version` history —
-  simpler, one table, and still honest about the last write. Wording is **"Last backed
-  up"** (not "synced") to match the product's phone→desktop framing; recorded as the
-  canonical rendering of the §5 field in agent_design §7.
-- **Files:** `apps/desktop/src/main/db/repositories/files.ts` (`getLastCommittedAt`),
-  `apps/desktop/src/shared/{status.ts,format.ts}` (`lastSyncedAt` field,
-  `formatRelativeTime`), `apps/desktop/src/main/ui/statusController.ts` (populate it),
-  `apps/desktop/src/renderer/src/DestinationsPanel.tsx` (render it),
-  `apps/desktop/test/{statusController,format}.test.ts`.
-- **PR:** branch `feature/phase1-desktop-ui-last-synced` pushed — open + squash-merge.
-- **Docs updated:** `agent_design.md` §7 (last-synced wording), `agent_desktop.md`
-  (last-synced state, trimmed "not yet built"), this record.
-- **Follow-ups:** with the destination card complete, the next natural surface is either
-  live **pairing-completion feedback** (main→renderer push to retire the manual Refresh,
-  plus a **manual-code** pairing fallback) or the **history/events** view (spec §5 event
-  rows — needs an `event_log` repo + IPC). Also still open: destination **rename/remove**
-  and phone-folder policy editing; safeStorage key wrapping; `Upload-Length` vs
-  `expected_size`; periodic staging GC; a hash-worker pool; the manual packaged-app
-  launch (all `status:*` / `destinations:*` / `devices:*` / `pairing:*` round trips +
-  worker via a real commit). Split `controlServer.ts` into `api/routes/*` in the next
-  slice that touches it.
-
-### 2026-07-25T14:35+0100 — feature/phase1-desktop-ui-sync-status — Desktop sync-status on the destination card (spec 25.2, design §5)
-
-- **Done:** the destination card now shows live status. A new electron-free
-  `main/ui/statusController.ts` (`createStatusController` → `getStatus`, unit-tested)
-  assembles the desktop's own status view over `status:get`: for **every** destination
-  `roots.list()` returns (bound or not, keyed by mappingId) it reports free space
-  (`freeBytes` / `destinationAvailable` via injectable statfs — a failed statfs is
-  surfaced as unavailable, not a throw), the two policies (null until the phone binds),
-  and the per-destination commit backlog. This is deliberately richer than the
-  phone-facing `GET /v1/sync/status` (device-scoped, bound-only) because the management
-  UI shows a folder's free space before any phone links to it. `main/ui/statusIpc.ts`
-  (`registerStatusIpc`) is the thin electron glue, disposed on quit; preload exposes
-  `folderSync.status.get`. `DestinationsPanel` merges the status into each card:
-  **"{size} free"** (e.g. "931 GB free"), **"· {n} waiting to commit"** appended when a
-  backlog exists, the §1 canonical policy labels once bound, and **"Destination
-  unavailable"** for an unreadable volume (a calm Needs-attention state, never implied
-  loss). New repo method `files.countPendingCommitsForRoot`; the statfs default was
-  extracted to `main/storage/diskSpace.ts` (`freeBytesOnVolume`) and now backs both the
-  prepare disk-space gate and this view (DRY). `formatBytes` in `src/shared/format.ts`
-  (pure, unit-tested). 8 new tests (statusController: free space for all destinations +
-  policies only once bound, unavailable volume, per-root + total pending; formatBytes
-  matrix). 170 desktop / 242 workspace green; lint/typecheck/format clean. **Verified by
-  a real `pnpm build`** (preload emits `status:get`).
-- **Design call:** the desktop status view intentionally diverges from the wire endpoint
-  (all destinations incl. unbound + policies, keyed by mappingId) — the local UI is not
-  a client of its own bearer-authed HTTP server. The card's remaining §5 field is **last
-  synced** (needs commit timestamps surfaced per destination), left for a later slice.
-- **Files:** `apps/desktop/src/shared/{status,format}.ts` (new),
-  `apps/desktop/src/main/ui/{statusController,statusIpc}.ts` (new),
-  `apps/desktop/src/main/storage/diskSpace.ts` (new; `controlServer.ts` now imports it),
-  `apps/desktop/src/main/db/repositories/files.ts` (`countPendingCommitsForRoot`),
-  `apps/desktop/src/main/index.ts` (register/dispose), `apps/desktop/src/preload/index.ts`,
-  `apps/desktop/src/renderer/src/{DestinationsPanel.tsx,env.d.ts}`,
-  `apps/desktop/test/{statusController,format}.test.ts` (new).
-- **PR:** branch `feature/phase1-desktop-ui-sync-status` pushed — open + squash-merge.
-- **Docs updated:** `agent_design.md` §7 (status card wording), `agent_desktop.md`
-  (sync-status UI state, trimmed "not yet built"), this record.
-- **Follow-ups:** the card's **last synced** field; live **pairing-completion feedback**
-  (main→renderer push; manual Refresh meanwhile) + **manual-code** pairing fallback;
-  destination **rename/remove** + phone-folder policy editing; safeStorage key wrapping;
-  `Upload-Length` vs `expected_size`; periodic staging GC; a hash-worker pool; the manual
-  packaged-app launch (pairing QR, folder picker, `status:*`/`destinations:*`/`devices:*`
-  round trips, worker via a real commit). Split `controlServer.ts` into `api/routes/*` in
-  the next slice that touches it.
-
-### 2026-07-25T14:17+0100 — feature/phase1-desktop-ui-destinations — Desktop destinations UI + overlap-at-creation (spec 25.2/12.5)
-
-- **Done:** the desktop can now add destinations. `DestinationsPanel`
-  (`renderer/src/DestinationsPanel.tsx`) lists each paired phone and the folders on this
-  desktop it backs up into; "Add folder" opens the native picker, and a destination
-  starts unbound ("Waiting for a phone folder") until the phone links one. Logic lives in
-  electron-free `main/ui/destinationsController.ts` (`createDestinationsController`:
-  `listDevices` / `listDestinations` / `addDestination`, unit-tested): `addDestination`
-  requires an absolute path + a paired device, runs the **destination-overlap check at
-  creation** (`findDestinationOverlap`, spec 12.5 — closing the long-standing TODO; the
-  register endpoint still enforces it for the wire), then `roots.create`s the mapping
-  (display name defaults to the folder basename). `main/ui/destinationsIpc.ts`
-  (`registerDestinationsIpc`) is the electron glue — `devices:list`, `destinations:list`,
-  `destinations:pickFolder` (`dialog.showOpenDialog`) and `destinations:add`, disposed on
-  quit. New repo methods `devices.listActive()` and `roots.list()`; `backend.ts` exposes
-  `repositories` to the main-process UI layer (never the renderer). Preload adds
-  `folderSync.devices.list` and `folderSync.destinations.{list,pickFolder,add}`; shared
-  DTOs/channels in `src/shared/destinations.ts`. 7 new tests (create, overlap, unknown
-  device, invalid path, explicit name, bound reflection, active-device list); 162 desktop
-  / 234 workspace green; lint/typecheck/format clean. **Verified by a real `pnpm build`**
-  (preload emits the new channels).
-- **Design call:** destinations attach to a paired phone (root_mapping FK), so the panel
-  is device-first: no devices → prompts to pair. No push events yet, so the panel offers
-  a manual **Refresh** to pick up a newly paired phone (interim until pairing-completion
-  feedback lands).
-- **Files:** `apps/desktop/src/shared/destinations.ts` (new),
-  `apps/desktop/src/main/ui/{destinationsController,destinationsIpc}.ts` (new),
-  `apps/desktop/src/main/db/repositories/{devices,roots}.ts` (list methods),
-  `apps/desktop/src/main/backend.ts` (expose repositories),
-  `apps/desktop/src/main/index.ts` (register IPC), `apps/desktop/src/preload/index.ts`,
-  `apps/desktop/src/renderer/**` (App/DestinationsPanel/env.d.ts),
-  `apps/desktop/test/destinationsController.test.ts` (new).
-- **PR:** branch `feature/phase1-desktop-ui-destinations` pushed — open + squash-merge.
-- **Docs updated:** `agent_design.md` §7 (destinations surface + wording),
-  `agent_desktop.md` (destinations UI/IPC state, trimmed "not yet built"), this record.
-- **Follow-ups:** the **sync-status UI** (wire `GET /v1/sync/status` / a status IPC into
-  the destination cards: free space, pending counts, policies — spec §5); pairing-
-  completion push + manual-code fallback; destination rename/remove + phone-folder
-  policy editing; safeStorage key wrapping; `Upload-Length` vs `expected_size`; periodic
-  staging GC; a hash-worker pool; the manual packaged-app launch (pairing QR, folder
-  picker + `destinations:*`/`devices:*` round trips, worker via a real commit). Split
-  `controlServer.ts` into `api/routes/*` in the next slice that touches it.
-
-### 2026-07-25T14:06+0100 — feature/phase1-desktop-ui-pairing — Desktop pairing UI: QR rendered in main (spec 24.3/20.1)
-
-- **Done:** the first real renderer feature. `PairingPanel`
-  (`renderer/src/PairingPanel.tsx`) shows the QR a phone scans, the desktop's display
-  name (both sides show the same name, agent_design §5) and a countdown to the
-  five-minute window. The **QR is rendered in the main process** and crosses to the
-  renderer only as a PNG data URL — the raw pairing secret never enters renderer state
-  (spec 24.3). Architecture: `src/shared/pairing.ts` (IPC channel names + a secret-free
-  `PairingPresentation` DTO shared by main/preload/renderer), `main/ui/pairingQr.ts`
-  (`renderPairingQr` — contract payload builder + `qrcode.toDataURL`, pure),
-  `main/ui/pairingController.ts` (`createPairingController` — opens the window, renders
-  from the fresh secret, returns image + expiry only; electron-free so the
-  no-secret-leak invariant is unit-tested), `main/net/lanHost.ts` (`resolveLanHost` —
-  first non-internal IPv4 for the QR host hint), `main/ui/ipc.ts` (`registerPairingIpc`
-  — thin `ipcMain.handle` glue, disposed on quit). Preload exposes
-  `folderSync.pairing.{start,cancel}` (ipcRenderer used only inside the bridge);
-  `main/index.ts` registers the IPC after the backend starts. `qrcode` (1.5.4, pure JS)
-  added and kept **external** in the main build; renderer CSP gained `img-src 'self'
-data:` so the data-URL QR displays; `backend.ts` now exposes `displayName`. 6 new
-  tests (2 lanHost, 1 QR render, 3 controller incl. the secret-never-leaks assertion);
-  155 desktop green; lint/typecheck/format clean. **Verified by a real `pnpm build`**:
-  preload emits the channels, main keeps qrcode external (require, not inlined), built
-  HTML carries the new CSP.
-- **Design call:** mappings require a paired device (root_mapping FK → paired_device),
-  so pairing is correctly the first UI slice — destinations attach to a paired phone and
-  come next. The renderer never getting the secret is the governing hard rule, so the §5
-  **manual-code** fallback is deferred (it would expose a typeable secret; revisit with
-  a short-code scheme), as is live **pairing-completion feedback** (a main→renderer push
-  when a phone actually pairs).
-- **Files:** `apps/desktop/src/shared/pairing.ts` (new),
-  `apps/desktop/src/main/ui/{pairingQr,pairingController,ipc}.ts` (new),
-  `apps/desktop/src/main/net/lanHost.ts` (new), `apps/desktop/src/main/backend.ts`
-  (displayName), `apps/desktop/src/main/index.ts` (register IPC),
-  `apps/desktop/src/preload/index.ts`, `apps/desktop/src/renderer/**`
-  (App/PairingPanel/env.d.ts/index.html CSP), `apps/desktop/package.json` (+qrcode),
-  `apps/desktop/test/{lanHost,pairingQr,pairingController}.test.ts` (new).
-- **PR:** branch `feature/phase1-desktop-ui-pairing` pushed — open + squash-merge.
-- **Docs updated:** `agent_design.md` §7 (pairing surface + wording), `agent_desktop.md`
-  (pairing UI/IPC state, trimmed "not yet built"), this record.
-- **Follow-ups:** the **destinations UI** (destination picker → `roots.create` with an
-  overlap check at creation time, for a chosen paired device) + a `devices:list` IPC so
-  the pairing surface can confirm success. Then pairing-completion push, manual-code
-  fallback, safeStorage key wrapping, `Upload-Length` vs `expected_size`, periodic
-  staging GC, a hash-worker pool, and the manual packaged-app launch (pairing QR
-  actually renders + `pairing:*` round trip + worker via a real commit). Split
-  `controlServer.ts` into `api/routes/*` in the next slice that touches it.
-
-### 2026-07-25T13:28+0100 — feature/phase1-files-delete-status — Files delete (managed trash) + sync status (spec 6.4/25.2/26.2)
-
-- **Done:** the last two control-API endpoints. `POST /v1/files/delete` mirrors a
-  phone-reported user/external deletion to the desktop copy. Mechanics live in the new
-  electron-free `sync/deleteService.ts` (`applyDeletion`); the endpoint does only auth,
-  path safety and outcome→HTTP mapping. Behaviour: idempotent by `eventId` (replay →
-  `already_applied` with the recorded trash path); version gate on
-  `expectedRemoteVersionId` vs the current version (mismatch → `remote_version_conflict`,
-  409, no action, spec 26.2); **policy-aware** — only `mirror_user_deletions` trashes,
-  `preserve_desktop_copy`/null keeps the copy and records `preserved` (spec 6.3, the
-  desktop is not a disposable mirror); trash is an atomic rename into
-  `.foldersync-trash/<ts>/<relpath>` with both dir entries fsynced; an already-gone
-  source (external race) still records `trashed`. `retention_cleanup` is rejected at the
-  contract (`bad_request`, spec 6.2). `recordDeletion` writes the `deletion_event` row
-  and flips `remote_file` → `trashed` in one transaction. Response `trashPath` is
-  destination-root-relative — no absolute server path on the wire (spec 30).
-  `GET /v1/sync/status` returns the authenticated device's bound mappings (unbound
-  omitted) with per-destination free space (`destinationAvailable` false when statfs
-  throws) and the commit backlog (`countPendingCommits`). New `files` repo methods
-  (`getDeletionEvent`, `recordDeletion`, `countPendingCommits`) and `layout.ts` helper
-  `relativeTrashPath`. Contract gained a `preserved` action; DB `DeletionAppliedAction`
-  is now the real stored outcomes (`already_applied` is a read-time replay response
-  only). 17 new tests (7 service matrix, 5 delete endpoint, 5 sync-status endpoint), 3
-  new golden fixtures. 149 desktop / 221 workspace green; lint/typecheck/format clean.
-- **Verification:** before this slice the user ran `electron-vite preview` on the
-  built output — the packaged renderer boots (Electron 43.2.0 / Node 24.18.0), closing
-  the main-wiring build-config risk. Still owed: the worker path spawned in the
-  packaged process via a real commit (needs an upload round-trip).
-- **Files:** `apps/desktop/src/main/sync/deleteService.ts` (new),
-  `apps/desktop/src/main/api/controlServer.ts` (two endpoints + service),
-  `apps/desktop/src/main/db/repositories/files.ts` (delete/count methods),
-  `apps/desktop/src/main/db/{types.ts,repositories/index.ts}`,
-  `apps/desktop/src/main/storage/layout.ts` (`relativeTrashPath`),
-  `packages/contracts/src/files.ts` (`preserved` action),
-  `apps/desktop/test/{deleteService,controlServer}.test.ts`,
-  `packages/test-fixtures/fixtures/file-delete-response/*` (3 new).
-- **PR:** branch `feature/phase1-files-delete-status` pushed — open + squash-merge.
-- **Docs updated:** `agent_desktop.md` (delete/status state, deletion hard rule), this
-  record.
-- **Follow-ups:** the desktop-UI slice (pairing window + QR image render in main +
-  destination-picker IPC with an overlap check at mapping creation). Then safeStorage
-  key wrapping for the private key, `Upload-Length` vs `expected_size` enforcement,
-  periodic (not just startup) staging GC, a hash-worker pool, and a packaged-app launch
-  driving a real commit to close the worker verification. `controlServer.ts` is now
-  ~575 lines — split into `api/routes/*` registrars in the next slice that touches it.

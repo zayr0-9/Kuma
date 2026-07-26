@@ -55,6 +55,14 @@ export {
   type FileDeleteRequest,
   fileDeleteResponseSchema,
   type FileDeleteResponse,
+  FILES_LIST_MAX_LIMIT,
+  FILES_LIST_DEFAULT_LIMIT,
+  filesListRequestSchema,
+  type FilesListRequest,
+  remoteImageItemSchema,
+  type RemoteImageItem,
+  filesListResponseSchema,
+  type FilesListResponse,
 } from './files.ts';
 
 export {

@@ -315,7 +315,30 @@ unsubscribe`, keeping the backend electron-free); `main/ui/ipc.ts` subscribes an
   tests (controlServer: fires with the right payload and no token/secret on success;
   silent on a failed or malformed pair). 177 desktop / 249 workspace green. **Verified by
   a real `pnpm build`** (preload emits `pairing:completed`).
-- Not yet built: the **manual-code** pairing fallback (would expose a typeable secret to
+- **Remote gallery endpoints built** (spec 6.6/25.2/22.4): the phone-side backup browser's
+  desktop half. `GET /v1/files/list` returns a bound root's committed **image** files
+  (extension-filtered), newest-first, keyset-paginated by `(committedAt, id)` via an opaque
+  base64url cursor — scoped to the authenticated device's own root (`root_not_mapped` for
+  foreign/unknown, no absolute path in the response — spec 30). Two **binary** routes serve
+  bytes: `GET /v1/files/:fileId/thumbnail` (downscaled, optional `size` query, clamped
+  64–1024) and `GET /v1/files/:fileId/content` (full file, streamed with `content-length`).
+  Both resolve a `fileId` through `files.getRemoteFileById`, check device ownership +
+  committed state (`file_not_found` identically for foreign/unknown/non-committed), re-run
+  `resolveDestinationPath` (spec 22.1), and map a missing/unreadable file to
+  `destination_unavailable` (never a 500). New `files` repo reads: `getRemoteFileById`,
+  `listCommittedImages` (fixed image-extension `LIKE` clause from trusted constants).
+  Thumbnails come from an injected **`ThumbnailProvider`** so `controlServer.ts` stays
+  electron-free; the real impl (`images/electronThumbnailer.ts`) decodes/downscales with
+  Electron **`nativeImage`** — no native image dependency — and caches JPEGs under
+  `userData/thumbnails` keyed by the immutable version id + size (`main/index.ts` constructs
+  it and passes it through `backend.ts`). A missing provider or an undecodable format falls
+  back to the original bytes. Image-type helpers live in `storage/imageTypes.ts`. 13 new
+  tests (12 endpoint in `filesGallery.test.ts` — listing/order/filter/pagination, thumbnail
+  generation + fallback + ownership, content stream + `destination_unavailable`; 1 repo
+  keyset/tie-break in `db.test.ts`). 203 desktop tests green. **Verified by a real
+  `pnpm build`** (electron external; thumbnailer + routes bundled).
+- Not yet built: periodic **thumbnail-cache GC** (the `userData/thumbnails` cache only grows
+  today — safe to delete, but never pruned); the **manual-code** pairing fallback (would expose a typeable secret to
   the renderer — against the hard rule; revisit with a short-code scheme); destination
   **rename/remove** and
   the phone-folder policy editing; enforcing `Upload-Length` against the prepare's

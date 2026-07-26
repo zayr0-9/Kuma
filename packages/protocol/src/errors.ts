@@ -14,6 +14,7 @@ export const ERROR_CODES = [
   'remote_version_conflict',
   'upload_not_found',
   'upload_expired',
+  'file_not_found',
   'destination_unavailable',
   'internal_error',
 ] as const;
