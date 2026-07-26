@@ -55,8 +55,9 @@ boundary), 32.2 (EAS workflow). UI changes also require
 - **Product screens (first pass):** `app/folders.tsx` (spec 5.2/5.5 — persisted roots with
   per-root status; add-folder = pick a directory → choose a desktop destination + the two
   policies → bind + persist → kick a sync; pause/resume via a Switch; remove with a confirm) and
-  `app/transfers.tsx` (spec 5.5 — the active upload with a live progress bar, the queued/failed
-  jobs, and recent history). Both poll the native engine (pull model). The home screen links
+  `app/transfers.tsx` (spec 5.5 — the active uploads, each with a live progress bar, since a
+  bounded pool streams several at once per spec 18.3; the queued/failed jobs, and recent
+  history). Both poll the native engine (pull model). The home screen links
   them above a "Diagnostics" section.
 - **Folder gallery built** (spec 6.6/5.5): `app/gallery.tsx` — a paginated, lazy-loaded thumbnail
   grid of a folder's backed-up images (opened via **View photos** on each Folders card, routed with

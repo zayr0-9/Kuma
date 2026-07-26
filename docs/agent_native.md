@@ -23,8 +23,10 @@ cleanup engines), 26–27 (state machines, renames).
   manager, even temporarily "for debugging", is forbidden.
 - Discovery via `NsdManager` in the service; never via JS. Multicast lock held only
   while discovering; wake locks only while scanning/transferring, released in `finally`.
-- Uploads: official tus-java/tus-android clients streaming directly from `content://`
-  URIs — never copy files into app cache. One active upload (MVP).
+- Uploads: official tus-java client streaming directly from `content://` URIs — never
+  copy files into app cache. A bounded pool of upload workers (default 3,
+  `UPLOAD_CONCURRENCY`) streams concurrently; a single commit watcher finalises commits
+  off the upload path so no worker blocks on the desktop hash (spec 18.3).
 - WorkManager is for maintenance/recovery only, never the primary transfer engine.
 
 ## Testing here
@@ -103,13 +105,19 @@ fixtures in `packages/test-fixtures` (see [`agent_protocol.md`](agent_protocol.m
   `paired_device` are deferred (deletion is spec 19; pairing already persists via `TokenVault`).
   **`SyncEngine.kt`** is the loop: `scanRoot` (new generation, access re-check, BFS
   `DocumentsContract` traverse, candidate rules 17.3, 45s quiescence, two-observation missing
-  confirmation with the 15-min floor 17.5, transactional `finishScan`) + `drainTransfers`
-  (claim → upload → commit), serialised on one `ReentrantLock` (one upload/phone, spec 18.3).
-  **`UploadManager` was folded into `TusTransport`** — identical proven pinned-TLS resumable tus,
-  now driven by a `transfer_job` row, returning a `TransferResult` the engine maps onto Room.
-  The **`FolderSyncService` worker now drives `SyncEngine.runSync`** (replacing the spike tick);
-  JS `syncNow` runs it on a detached thread; `buildNotification` reads only the in-memory
-  `SyncEngine.activeTransfer()` (never Room — it also runs on the main thread). Module surface
+  confirmation with the 15-min floor 17.5, transactional `finishScan`) + `drainTransfers`.
+  The drain runs a **bounded pool of `uploadWorker`s** (default `UPLOAD_CONCURRENCY` = 3): each
+  atomically `claimNextJob`s (Room transaction → no double-claim), streams bytes, then hands the
+  `prepareId` to a single **`watchCommits`** thread and immediately claims the next file.
+  `watchCommits` polls each outstanding prepare to terminal and finalises Room state off the
+  upload path (spec 18.3, 18.5). The whole `runSync` is still serialised on one `ReentrantLock`
+  (one drain at a time). **`UploadManager` was folded into `TusTransport`** — identical proven
+  pinned-TLS resumable tus, now driven by a `transfer_job` row; `uploadBytes` returns an
+  `UploadResult` (`Uploaded`/`Skipped`/`Failed`/`Cancelled`) and no longer blocks on the commit
+  poll — the watcher owns that. The **`FolderSyncService` worker now drives `SyncEngine.runSync`**
+  (replacing the spike tick); JS `syncNow` runs it on a detached thread; `buildNotification`
+  reads only the in-memory `SyncEngine.activeTransfers()` (never Room — it also runs on the main
+  thread). Module surface
   swapped the single-shot upload calls for `addRoot`/`listRoots`/`setRootEnabled`/`removeRoot`
   (removeRoot best-effort `unbindRoot`s the desktop)/`syncNow`/`getTransfers`/`getSyncEvents`;
   `ControlClient` gained `unbindRoot` (`POST /v1/roots/unbind`). Decision:

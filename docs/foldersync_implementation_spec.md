@@ -297,7 +297,7 @@ This is read-only and user-initiated. It does not weaken one-way authority (sect
 | Electron main process owns privileged operations | Renderer must not have filesystem or network-server authority | Strong security boundary | Requires narrow IPC API |
 | Desktop staging directory inside destination volume | Enables atomic rename into final location | Prevents partially written visible files | Consumes destination space until commit |
 | Server-side SHA-256 after upload | Durable integrity/version identity without reading every phone file twice | Simple mobile pipeline; detects stored content identity | Desktop performs an additional read after upload; delete-eligible files also require a phone-side verification read before cleanup (section 19.2) |
-| One active upload initially | Reduces battery, storage-provider and race complexity | Easier correctness and predictable resource use | Lower peak throughput; concurrency can be added later |
+| Bounded upload pool (default 3) + pipelined commit | Sequential single-stream + blocking commit poll left throughput and latency on the table | Higher throughput; no per-file gap; safe since `claimNextJob` is atomic and the desktop already commits paths in parallel | Slightly more concurrency to reason about (foreground notification, cancellation, disk accounting) |
 | Work Mac uses EAS cloud builds initially | Avoid installing a personal Android toolchain on a work-owned machine | Minimal setup and policy footprint | Slow iteration when changing Kotlin/native configuration |
 | Personal Ubuntu machine becomes native build/debug environment later | Better ownership and local native debugging | Fast Gradle rebuilds, `adb`, Logcat | Requires a second environment and repository sync |
 
@@ -1043,17 +1043,28 @@ Never install a trust-all certificate manager.
 
 ### 18.3 Upload concurrency
 
-MVP: one upload at a time per phone.
+The phone drains its transfer queue with a **bounded pool of upload workers** (default 3,
+`UPLOAD_CONCURRENCY`, tunable) and a **pipelined commit**:
 
-Reasons:
+- Each worker atomically claims its own `transfer_job` (`claimNextJob` is a Room transaction, so
+  no two workers take the same file), streams the bytes over tus, then hands the `prepareId` to a
+  single commit watcher and immediately claims the next file. A worker never blocks waiting for
+  the desktop to hash and commit.
+- The commit watcher polls each outstanding `prepareId` to a terminal state and finalises Room
+  state (version stamp / retry / park) off the upload path, in parallel with the workers. A
+  per-file timeout parks the commit as retryable; the next drain re-prepares and the desktop
+  returns `skip` (section 6.5).
 
-- Easier foreground notification and cancellation.
-- Lower battery and memory usage.
-- Avoid overloading SAF providers.
-- Easier bandwidth and disk-space accounting.
-- Simpler recovery.
+This removes both costs of the earlier sequential loop: the single byte-stream (throughput) and
+the per-file "gap" spent blocking on the commit poll (latency). The desktop already commits
+different `(rootId, relativePath)` paths in parallel (verify → SHA-256 in a worker thread →
+atomic rename), so no desktop change is required; the per-path commit serialisation of section
+18.5 still holds.
 
-Later, permit two concurrent uploads only after measurement.
+The pool is kept small to stay gentle on the SAF providers, battery and the desktop, and to keep
+foreground notification, cancellation (a stop leaves in-flight jobs `uploading` → reclaimed next
+drain) and disk-space accounting simple. Raise `UPLOAD_CONCURRENCY`, or add per-connection reuse
+(section 39), only after measurement.
 
 ### 18.4 Upload metadata
 
@@ -2383,7 +2394,9 @@ The agent must not:
 
 These are intentionally deferred until measurements or product use justify them:
 
-- Two concurrent uploads.
+- Upload connection reuse / HTTP-2 (replace the tus `HttpURLConnection` transport, which forces
+  `Connection: close`, with an OkHttp-backed uploader so back-to-back files reuse one pinned
+  connection). The bounded upload pool of section 18.3 is already in place.
 - Mobile-side content hashing.
 - Cross-root deduplication.
 - Rename detection by hash.

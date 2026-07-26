@@ -22,7 +22,7 @@ const POLL_MS = 1000;
 export default function TransfersScreen(): ReactElement {
   const t = useTheme();
   const linked = isNativeLinked();
-  const [active, setActive] = useState<ActiveTransfer | null>(null);
+  const [active, setActive] = useState<ActiveTransfer[]>([]);
   const [jobs, setJobs] = useState<TransferJob[]>([]);
   const [events, setEvents] = useState<SyncEvent[]>([]);
   const mounted = useRef(true);
@@ -69,31 +69,33 @@ export default function TransfersScreen(): ReactElement {
 
   return (
     <Screen>
-      <Section label="Active">
-        {active === null ? (
+      <Section label={active.length > 1 ? `Active (${active.length})` : 'Active'}>
+        {active.length === 0 ? (
           <Text variant="body" tone="muted">
             Nothing uploading right now.
           </Text>
         ) : (
-          <Card style={styles.gap}>
-            <View style={styles.activeHead}>
-              <View
-                style={[
-                  styles.chip,
-                  { backgroundColor: t.colors.surfaceSunken, borderRadius: t.radius.pill },
-                ]}
-              >
-                <Icon icon={UploadCloud} tone="accent" />
+          active.map((transfer) => (
+            <Card key={`${transfer.rootId}:${transfer.relativePath}`} style={styles.gap}>
+              <View style={styles.activeHead}>
+                <View
+                  style={[
+                    styles.chip,
+                    { backgroundColor: t.colors.surfaceSunken, borderRadius: t.radius.pill },
+                  ]}
+                >
+                  <Icon icon={UploadCloud} tone="accent" />
+                </View>
+                <Text variant="bodyStrong" numberOfLines={1} style={styles.flex}>
+                  {transfer.fileName}
+                </Text>
               </View>
-              <Text variant="bodyStrong" numberOfLines={1} style={styles.flex}>
-                {active.fileName}
+              <ProgressBar value={transfer.bytesUploaded} total={transfer.expectedSize} />
+              <Text variant="caption" tone="muted">
+                {formatBytes(transfer.bytesUploaded)} / {formatBytes(transfer.expectedSize)}
               </Text>
-            </View>
-            <ProgressBar value={active.bytesUploaded} total={active.expectedSize} />
-            <Text variant="caption" tone="muted">
-              {formatBytes(active.bytesUploaded)} / {formatBytes(active.expectedSize)}
-            </Text>
-          </Card>
+            </Card>
+          ))
         )}
       </Section>
 

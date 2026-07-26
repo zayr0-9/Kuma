@@ -23,6 +23,46 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-26T17:50+0100 — feat/upload-parallelism — Bounded upload pool + pipelined commit (spec 18.3)
+
+- **Done:** replaced the phone's sequential one-at-a-time upload drain (which uploaded one file,
+  then **blocked** polling the desktop commit before starting the next — the "gap" between
+  uploads) with a **bounded worker pool + pipelined commit**:
+  - `SyncEngine.drainTransfers` now spawns `UPLOAD_CONCURRENCY` (=3) **`uploadWorker`** threads.
+    Each atomically `claimNextJob`s (Room transaction; `nextClaimable` filters `state='pending'`
+    and the claim flips it to `'uploading'`, so no two workers take the same file), streams bytes,
+    then hands the `prepareId` to a single **`watchCommits`** thread and immediately claims the
+    next file — no worker blocks on the desktop hash+commit.
+  - `watchCommits` polls every outstanding prepare to terminal and finalises Room state
+    (`completeJob`/`failJob`) off the upload path; a per-file deadline parks a stuck commit as
+    retryable (next drain re-prepares → desktop returns skip, spec 6.5). A null status (network
+    blip) is tolerated until the deadline.
+  - `TusTransport.uploadFile` → **`uploadBytes`** returning **`UploadResult`**
+    (`Uploaded(prepareId)`/`Skipped`/`Failed`/`Cancelled`); the blocking `pollUntilTerminal` and
+    its commit-timeout constants moved to the engine's watcher.
+  - `SyncEngine.active` widened from one `ActiveTransfer?` to a `ConcurrentHashMap` keyed by
+    job id; `activeTransfer()` → `activeTransfers(): List`. The notification summarises the count
+    ("Uploading N files"), and `app/transfers.tsx` renders one progress card per active file.
+  - **Desktop unchanged** — it already commits different `(rootId, relativePath)` paths in
+    parallel (verify → SHA-256 in a worker thread → atomic rename), with no per-device upload
+    guard. Verified no server-side single-upload enforcement exists.
+- **Files:** `modules/foldersync-native/android/.../{SyncEngine.kt, UploadEngine.kt,
+FolderSyncModule.kt, FolderSyncService.kt}`, `modules/foldersync-native/src/index.ts`,
+  `apps/mobile/app/transfers.tsx`; docs `foldersync_implementation_spec.md` (18.3 + decision
+  table + §39 deferred), `agent_native.md`, `agent_mobile.md`.
+- **Gates:** `pnpm -r typecheck` clean (6 projects); eslint + `format:check` pending in this run.
+  **Kotlin compiles only on EAS** — needs a fresh dev build to device-verify the pool.
+- **PR:** `feat/upload-parallelism` — to open + squash-merge (first of two; thumbnail-cache branch
+  follows).
+- **Docs updated:** spec 18.3 / decision table / §39, `agent_native.md`, `agent_mobile.md`.
+- **Follow-ups:** device-verify on the Samsung with a fresh EAS build (watch throughput + battery;
+  tune `UPLOAD_CONCURRENCY` if needed). Deferred (spec §39): upload connection reuse / HTTP-2
+  (the tus `HttpURLConnection` path forces `Connection: close`, so each file still pays a TLS
+  handshake). **Next branch:** persistent per-root thumbnail cache + batch cached-check + prefetch
+  (gallery), per the user's request.
+
+---
+
 ### 2026-07-26T16:48+0100 — feat/remote-gallery-mobile — Remote gallery: native fetch/download + mobile grid & pan/zoom viewer (spec 6.6, client half)
 
 - **Done:** the phone half of the remote gallery, **stacked on `feat/remote-gallery-api`**.

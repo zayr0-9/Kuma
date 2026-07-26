@@ -201,16 +201,18 @@ class FolderSyncService : Service() {
       Notification.Builder(this)
     }
     // Non-misleading status (spec 5.3), read only from the in-memory transfer snapshot — never
-    // Room, because this also runs on the main thread from onStartCommand.
-    val active = SyncEngine.activeTransfer()
+    // Room, because this also runs on the main thread from onStartCommand. Up to a small bounded
+    // pool uploads at once (spec 18.3), so the text summarises the count.
+    val active = SyncEngine.activeTransfers()
     val title = when {
       paused -> "FolderSync is paused"
-      active != null -> "FolderSync is backing up"
+      active.isNotEmpty() -> "FolderSync is backing up"
       else -> "FolderSync is active"
     }
     val text = when {
       paused -> "Sync paused"
-      active != null -> "Uploading ${active.fileName}"
+      active.size > 1 -> "Uploading ${active.size} files"
+      active.size == 1 -> "Uploading ${active.first().fileName}"
       else -> "Waiting to sync"
     }
     builder

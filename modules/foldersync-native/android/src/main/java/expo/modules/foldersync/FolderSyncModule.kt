@@ -382,13 +382,13 @@ class FolderSyncModule : Module() {
       mapOf<String, Any?>("started" to true)
     }
 
-    // Active + queued transfers for the Transfers view (spec 5.5). The live byte count of the
-    // in-flight file comes from the in-memory snapshot; queued jobs come from Room.
+    // Active + queued transfers for the Transfers view (spec 5.5). Up to UPLOAD_CONCURRENCY files
+    // stream at once (spec 18.3); the live byte counts come from the in-memory snapshot, queued
+    // jobs from Room.
     AsyncFunction("getTransfers") {
       val store = SyncStore.get(context())
-      val active = SyncEngine.activeTransfer()
       mapOf(
-        "active" to active?.let {
+        "active" to SyncEngine.activeTransfers().map {
           mapOf(
             "rootId" to it.rootId,
             "fileName" to it.fileName,

@@ -94,39 +94,39 @@ class PinnedTusClient(private val socketFactory: SSLSocketFactory) : TusClient()
   }
 }
 
-// Outcome of moving one file's bytes end to end (prepare → tus → commit poll). The SyncEngine
-// maps this onto Room state (spec 16.2): Committed/Skipped stamp the file version and drop the
-// job; Failed(retryable) reschedules with backoff; non-retryable parks the job; Cancelled
-// leaves it pending for the next drain.
-sealed interface TransferResult {
-  data class Committed(val remoteVersionId: String?, val sha256: String?) : TransferResult
-  data class Skipped(val remoteVersionId: String, val sha256: String) : TransferResult
-  data class Failed(val errorCode: String, val message: String?, val retryable: Boolean) : TransferResult
-  data object Cancelled : TransferResult
+// Outcome of the BYTES phase of one file (prepare → tus stream). The commit poll is decoupled
+// (spec 18.3 pipeline): the engine's commit watcher polls the prepareId to terminal, so an
+// upload worker never blocks waiting for the desktop hash+rename and immediately claims the next
+// file. Uploaded → bytes are on the desktop awaiting verify/hash/commit; Skipped → the desktop
+// already holds this exact version (spec 6.5); Failed(retryable) reschedules with backoff,
+// non-retryable parks the job; Cancelled leaves the job for the next drain.
+sealed interface UploadResult {
+  data class Uploaded(val prepareId: String) : UploadResult
+  data class Skipped(val remoteVersionId: String, val sha256: String) : UploadResult
+  data class Failed(val errorCode: String, val message: String?, val retryable: Boolean) : UploadResult
+  data object Cancelled : UploadResult
 }
 
 // Live progress callback: (bytesUploaded, expectedSize, prepareId, tusUploadUrl?). Called
 // frequently during the chunk loop; the engine throttles what it persists.
 typealias TransferProgress = (Long, Long, String, String?) -> Unit
 
-// One-file resumable upload, driven by the engine (spec 18.5 steps 3-10). Stateless: all
-// durable state lives in Room + the fingerprint TusURLStore, so this survives process death.
+// One-file resumable upload, driven by the engine (spec 18.5 steps 3-4). Stateless: all durable
+// state lives in Room + the fingerprint TusURLStore, so this survives process death. This moves
+// only the bytes; the engine's commit watcher (SyncEngine) drives verify/hash/commit (steps
+// 5-11), which lets several of these run in parallel without any one blocking on a commit.
 object TusTransport {
   private const val CHUNK_SIZE = 4 * 1024 * 1024
   private const val CONNECT_TIMEOUT_MS = 15_000
   private const val MAX_ATTEMPTS = 6
-  private const val POLL_INTERVAL_MS = 1_000L
-  // The desktop hashes the whole file after upload (spec 18.5 step 6) — a multi-GB file takes
-  // a while, so the commit poll is generous.
-  private const val COMMIT_POLL_TIMEOUT_MS = 10 * 60 * 1000L
 
-  fun uploadFile(
+  fun uploadBytes(
     context: Context,
     control: ControlClient,
     file: FileEntryEntity,
     onProgress: TransferProgress,
     shouldStop: () -> Boolean,
-  ): TransferResult {
+  ): UploadResult {
     // 1. Reserve the upload (or learn the desktop already has this exact version — spec 6.5).
     val prepared = control.prepareUpload(
       file.rootId,
@@ -137,8 +137,8 @@ object TusTransport {
       file.mimeType,
     )
     val reservation = when (prepared) {
-      is PrepareOutcome.Failed -> return TransferResult.Failed(prepared.reason, null, isRetryable(prepared.reason))
-      is PrepareOutcome.Skip -> return TransferResult.Skipped(prepared.remoteVersionId, prepared.sha256)
+      is PrepareOutcome.Failed -> return UploadResult.Failed(prepared.reason, null, isRetryable(prepared.reason))
+      is PrepareOutcome.Skip -> return UploadResult.Skipped(prepared.remoteVersionId, prepared.sha256)
       is PrepareOutcome.Upload -> prepared
     }
     val prepareId = reservation.prepareId
@@ -176,7 +176,7 @@ object TusTransport {
     var attempt = 0
     var lastError = "network"
     while (true) {
-      if (shouldStop()) return TransferResult.Cancelled
+      if (shouldStop()) return UploadResult.Cancelled
       try {
         // A fresh upload per attempt → a fresh content:// stream the uploader seeks on resume.
         val upload = UriTusUpload(resolver, uri, fdSize, metadata)
@@ -188,58 +188,31 @@ object TusTransport {
           onProgress(uploader.offset, fdSize, prepareId, tusUrl)
           if (shouldStop()) {
             uploader.finish(true) // close the content:// stream on the cancel path
-            return TransferResult.Cancelled
+            return UploadResult.Cancelled
           }
         }
         uploader.finish()
         break
       } catch (e: ProtocolException) {
         // The server rejected the tus exchange (e.g. expired reservation) — not retryable.
-        return TransferResult.Failed("protocol", e.message, false)
+        return UploadResult.Failed("protocol", e.message, false)
       } catch (e: IOException) {
-        if (shouldStop()) return TransferResult.Cancelled
+        if (shouldStop()) return UploadResult.Cancelled
         lastError = "network: ${e.javaClass.simpleName}: ${e.message}"
         attempt++
-        if (attempt >= MAX_ATTEMPTS) return TransferResult.Failed("network", lastError, true)
+        if (attempt >= MAX_ATTEMPTS) return UploadResult.Failed("network", lastError, true)
         try {
           Thread.sleep(backoffMs(attempt))
         } catch (interrupted: InterruptedException) {
-          return TransferResult.Cancelled
+          return UploadResult.Cancelled
         }
         // Loop: resumeOrCreateUpload HEADs the stored URL and resumes from the server offset.
       }
     }
 
-    // 3. Wait for the desktop to verify, hash and atomically commit (spec 18.5 steps 5-10).
-    val terminal = pollUntilTerminal(control, prepareId, shouldStop)
-      ?: return if (shouldStop()) TransferResult.Cancelled else TransferResult.Failed("commit_timeout", null, true)
-    return when (terminal.state) {
-      "committed" -> TransferResult.Committed(terminal.remoteVersionId, terminal.sha256)
-      "failed" -> TransferResult.Failed(terminal.errorCode ?: "commit_failed", null, false)
-      "expired" -> TransferResult.Failed("upload_expired", null, false)
-      else -> TransferResult.Failed("commit_${terminal.state}", null, false)
-    }
-  }
-
-  private fun pollUntilTerminal(
-    control: ControlClient,
-    prepareId: String,
-    shouldStop: () -> Boolean,
-  ): PrepareStatus? {
-    val deadline = System.currentTimeMillis() + COMMIT_POLL_TIMEOUT_MS
-    while (System.currentTimeMillis() < deadline) {
-      if (shouldStop()) return null
-      val status = control.getPrepareStatus(prepareId)
-      if (status != null && (status.state == "committed" || status.state == "failed" || status.state == "expired")) {
-        return status
-      }
-      try {
-        Thread.sleep(POLL_INTERVAL_MS)
-      } catch (e: InterruptedException) {
-        return null
-      }
-    }
-    return null
+    // Bytes are on the desktop. The engine's commit watcher polls this prepareId to terminal
+    // (spec 18.5 steps 5-11), so this worker returns now and immediately claims the next file.
+    return UploadResult.Uploaded(prepareId)
   }
 
   // A prepare/control failure is worth retrying only when it is transient (a network blip or a
