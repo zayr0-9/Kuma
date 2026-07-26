@@ -9,6 +9,7 @@ import {
 } from './db/index.ts';
 import { startAdvertising, type Advertiser } from './discovery/advertise.ts';
 import type { PairingCompletedEvent } from '../shared/pairing.ts';
+import type { ThumbnailProvider } from './images/thumbnailer.ts';
 import { createCommitCoordinator } from './sync/commitCoordinator.ts';
 import { createCommitService } from './sync/commitService.ts';
 import { garbageCollectStaging } from './sync/stagingGc.ts';
@@ -32,6 +33,10 @@ export interface BackendConfig {
   port?: number;
   // DNS-SD advertising is on by default; tests disable it to avoid multicast.
   enableDiscovery?: boolean;
+  // Remote-gallery thumbnail provider (spec 22.4). Supplied by main/index.ts (Electron
+  // `nativeImage`); the backend stays electron-free by only forwarding it. Absent under
+  // vitest — the thumbnail route then serves the original bytes.
+  thumbnails?: ThumbnailProvider;
   now?: () => Date;
 }
 
@@ -86,6 +91,7 @@ export async function startBackend(config: BackendConfig): Promise<Backend> {
     repositories,
     pairingWindow,
     commitCoordinator,
+    ...(config.thumbnails !== undefined ? { thumbnails: config.thumbnails } : {}),
     onPairingComplete: (event) => {
       for (const listener of pairingListeners) listener(event);
     },

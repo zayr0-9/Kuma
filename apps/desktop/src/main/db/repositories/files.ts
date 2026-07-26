@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { PrepareState } from '@foldersync/contracts';
 import type { Database } from '../database.ts';
 import { asInt, asIntOrNull, asRow, asText, asTextOrNull } from '../row.ts';
+import { IMAGE_EXTENSIONS } from '../../storage/imageTypes.ts';
 import type {
   DeletionAppliedAction,
   DeletionEventRow,
@@ -135,11 +136,30 @@ export interface RecordCommittedVersionInput {
   destinationMtimeMs?: number | null;
 }
 
+// One page of the remote gallery (spec 6.6). `cursor` is the keyset position from the
+// previous page's last row; null starts at the newest. Ordering is (committedAt, id) DESC
+// so the gallery reads newest-backed-up first and pages deterministically.
+export interface ListCommittedImagesOptions {
+  limit: number;
+  cursor: { committedAt: string; id: string } | null;
+}
+
 export interface FilesRepository {
   // Committed truth for one path (spec 21.1). Keyed by the normalised relative path
   // (the canonical form from resolveDestinationPath), which is how it is stored.
   getRemoteFile(phoneDeviceId: string, rootId: string, relativePath: string): RemoteFileRow | null;
+  // Committed truth for one file id — the remote gallery resolves a fileId from the phone
+  // to its stored path before streaming bytes (spec 6.6). Ownership is checked by the caller.
+  getRemoteFileById(id: string): RemoteFileRow | null;
   getRemoteVersion(versionId: string): RemoteVersionRow | null;
+  // A page of a bound root's committed image files, newest first, for the remote gallery
+  // (spec 6.6). Filtered to recognised image extensions and to files with a live committed
+  // version; keyset-paginated by (committedAt, id).
+  listCommittedImages(
+    phoneDeviceId: string,
+    rootId: string,
+    options: ListCommittedImagesOptions,
+  ): RemoteFileRow[];
   createPrepare(input: CreatePrepareInput): void;
   getPrepare(prepareId: string): UploadPrepareRow | null;
   // The reusable prepare for an idempotent retry (spec 25.2): the newest
@@ -193,7 +213,27 @@ export function createFilesRepository(db: Database): FilesRepository {
   const remoteFileStmt = db.prepare(
     'SELECT * FROM remote_file WHERE phone_device_id = ? AND root_id = ? AND relative_path = ?',
   );
+  const remoteFileByIdStmt = db.prepare('SELECT * FROM remote_file WHERE id = ?');
   const remoteVersionStmt = db.prepare('SELECT * FROM remote_version WHERE version_id = ?');
+
+  // Fixed image-extension filter for the gallery listing. IMAGE_EXTENSIONS are trusted
+  // lowercase constants, so inlining them is injection-safe; comparing lower(relative_path)
+  // makes the match case-insensitive (IMG.JPG counts).
+  const imageLikeClause = `(${IMAGE_EXTENSIONS.map((ext) => `lower(relative_path) LIKE '%.${ext}'`).join(' OR ')})`;
+  const listImagesBase = `
+    SELECT * FROM remote_file
+    WHERE phone_device_id = ? AND root_id = ? AND state = 'committed'
+      AND current_version_id IS NOT NULL AND committed_at IS NOT NULL
+      AND ${imageLikeClause}
+  `;
+  const listImagesStmt = db.prepare(
+    `${listImagesBase} ORDER BY committed_at DESC, id DESC LIMIT ?`,
+  );
+  // Keyset continuation: rows strictly older than the cursor in (committed_at, id) order.
+  const listImagesAfterStmt = db.prepare(
+    `${listImagesBase} AND (committed_at < ? OR (committed_at = ? AND id < ?))
+     ORDER BY committed_at DESC, id DESC LIMIT ?`,
+  );
   const createPrepareStmt = db.prepare(`
     INSERT INTO upload_prepare
       (prepare_id, phone_device_id, root_id, file_entry_id, relative_path,
@@ -263,7 +303,25 @@ export function createFilesRepository(db: Database): FilesRepository {
   return {
     getRemoteFile: (phoneDeviceId, rootId, relativePath) =>
       mapRemoteFile(remoteFileStmt.get(phoneDeviceId, rootId, relativePath)),
+    getRemoteFileById: (id) => mapRemoteFile(remoteFileByIdStmt.get(id)),
     getRemoteVersion: (versionId) => mapRemoteVersion(remoteVersionStmt.get(versionId)),
+    listCommittedImages: (phoneDeviceId, rootId, options) => {
+      const rows =
+        options.cursor === null
+          ? listImagesStmt.all(phoneDeviceId, rootId, options.limit)
+          : listImagesAfterStmt.all(
+              phoneDeviceId,
+              rootId,
+              options.cursor.committedAt,
+              options.cursor.committedAt,
+              options.cursor.id,
+              options.limit,
+            );
+      return rows.flatMap((raw) => {
+        const row = mapRemoteFile(raw);
+        return row === null ? [] : [row];
+      });
+    },
     createPrepare: (input) => {
       createPrepareStmt.run(
         input.prepareId,

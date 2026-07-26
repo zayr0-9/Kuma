@@ -32,17 +32,25 @@ protocol), 34.2 (contract tests).
 - `@foldersync/protocol`: protocol version (1), header names, endpoint paths,
   DNS-SD service type/TXT keys, and the error-code list — constants only, no logic.
   The error-code list gained `bad_request` (generic malformed-request code, first
-  used by `POST /v1/pair`) with the pairing slice; adding a code is additive and
-  needs no protocol-version bump. The existing error-response golden fixtures cover
-  the envelope shape, so no new fixture was required.
+  used by `POST /v1/pair`) with the pairing slice, and `file_not_found` (unknown/foreign
+  gallery file, reported identically so existence is not leaked) with the remote-gallery
+  slice; adding a code is additive and needs no protocol-version bump. The remote gallery
+  also added the `filesList` endpoint path, the `:fileId`-parameterised route templates
+  `FILES_THUMBNAIL_ROUTE`/`FILES_CONTENT_ROUTE`, and the concrete-url helpers
+  `fileThumbnailEndpoint`/`fileContentEndpoint` (the two binary routes carry no JSON schema).
 - `@foldersync/contracts`: Zod schemas for every spec-25 endpoint (pair, prepare,
-  prepare status, delete, roots/register, health, device, sync status), the two
-  policies + deletion cause enums, the canonical wire-path parser/normaliser
+  prepare status, delete, roots/register, health, device, sync status, files/list),
+  the two policies + deletion cause enums, the canonical wire-path parser/normaliser
   (`parseWirePath`, NFC), and the pairing-QR build/parse pair. `fileDeleteRequest`
-  admits only `user_or_external_deletion` at the schema level.
-- `@foldersync/test-fixtures`: 37 golden fixtures across 15 directories, including
-  NFD→NFC and NUL wire-path cases; `fixtures.test.ts` enforces that every fixture
-  directory maps to a schema and has both valid and invalid cases.
+  admits only `user_or_external_deletion` at the schema level. The remote-gallery
+  listing (spec 6.6) adds `filesListRequest` (query params — `limit` is `z.coerce.number`
+  since Fastify supplies query values as strings), `remoteImageItem`, and
+  `filesListResponse`; the thumbnail/content responses are raw image bytes, so they have no
+  schema (the routes are validated by the `:fileId` uuid param + owner check on the desktop).
+- `@foldersync/test-fixtures`: 43 golden fixtures across 17 directories, including
+  NFD→NFC and NUL wire-path cases and the two `files-list-*` gallery dirs;
+  `fixtures.test.ts` enforces that every fixture directory maps to a schema and has both
+  valid and invalid cases.
 - Not yet done: Kotlin DTO mirrors + their fixture tests (land with the native
   module); Fastify integration of the schemas (lands with the desktop app).
 
