@@ -27,9 +27,9 @@ export default function RootLayout(): ReactElement {
           <Stack.Screen name="folders" options={{ title: 'Folders' }} />
           <Stack.Screen name="gallery" options={{ title: 'Photos' }} />
           <Stack.Screen name="transfers" options={{ title: 'Transfers' }} />
-          <Stack.Screen name="spike-saf" options={{ title: 'SAF spike' }} />
-          <Stack.Screen name="spike-service" options={{ title: 'Service spike' }} />
-          <Stack.Screen name="spike-pairing" options={{ title: 'Discovery + pairing spike' }} />
+          <Stack.Screen name="spike-saf" options={{ title: 'SAF access' }} />
+          <Stack.Screen name="spike-service" options={{ title: 'Foreground service' }} />
+          <Stack.Screen name="spike-pairing" options={{ title: 'Pair a desktop' }} />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -1,7 +1,8 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { Fragment, Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 import { requireOptionalNativeModule } from 'expo';
+import { Monitor, MonitorSmartphone, QrCode, ScanLine, TriangleAlert } from 'lucide-react-native';
 import { getDiscoveredDesktops, startDiscovery, stopDiscovery } from '../src/native/discovery.ts';
 import type { DiscoveredDesktop } from '../src/native/discovery.ts';
 import {
@@ -11,20 +12,21 @@ import {
 } from '../src/native/pairing.ts';
 import type { PairedDevice, PairingResult } from '../src/native/pairing.ts';
 import { isNativeLinked } from '../src/native/module.ts';
-import { SpikeButton } from '../src/components/SpikeButton.tsx';
+import { Button, Card, Divider, Icon, Note, Screen, Text } from '../src/components/index.ts';
+import { useTheme } from '../src/theme/index.ts';
 
-// Spike 3 + 4 diagnostic harness (spec 35, 23, 24): DNS-SD discovery and pinned-TLS pairing.
-// The pairing QR is scanned IN-APP via expo-camera (CameraView reads the bytes directly, so
-// the foldersync:// scheme never reaches Android's deep-link router — no collision with the
-// dev-client launcher). Pasting the code stays as a fallback. Developer diagnostics screen
-// (agent_design §4), not a product surface.
+// Pair a desktop (spec 35 spike 3 + 4, 23, 24): DNS-SD discovery and pinned-TLS pairing. The pairing
+// QR is scanned in-app via expo-camera (CameraView reads the bytes directly, so the foldersync://
+// scheme never reaches Android's deep-link router — no collision with the dev-client launcher);
+// pasting the code is the fallback. This is the phone half of the §5 pairing flow — it shows the
+// same desktop names the desktop shows — and speaks the design system (themed tokens, dark-mode).
 
 const DISCOVERY_POLL_MS = 2000;
 
-// expo-camera is a native module — present only in a dev client built with it. Detect it
-// safely (null on an older build), and lazy-load the scanner so expo-camera's import only
-// runs when the scanner is actually shown (never on a build that lacks the native module,
-// which would crash the screen). Degrades to paste-only otherwise.
+// expo-camera is a native module — present only in a dev client built with it. Detect it safely
+// (null on an older build), and lazy-load the scanner so expo-camera's import only runs when the
+// scanner is actually shown (never on a build that lacks the native module, which would crash the
+// screen). Degrades to paste-only otherwise.
 const cameraNativeAvailable = requireOptionalNativeModule('ExpoCamera') !== null;
 const QrScanner = lazy(() => import('../src/components/QrScanner.tsx'));
 
@@ -38,6 +40,7 @@ const REASON_TEXT: Record<Exclude<PairingResult, { ok: true }>['reason'], string
 };
 
 export default function PairingSpikeScreen(): ReactElement {
+  const t = useTheme();
   const linked = isNativeLinked();
   const [discovering, setDiscovering] = useState(false);
   const [desktops, setDesktops] = useState<DiscoveredDesktop[]>([]);
@@ -52,7 +55,7 @@ export default function PairingSpikeScreen(): ReactElement {
     try {
       setPaired(await listPairedDevices());
     } catch {
-      // Non-fatal for the harness.
+      // Non-fatal for the diagnostics screen.
     }
   }, [linked]);
 
@@ -143,167 +146,170 @@ export default function PairingSpikeScreen(): ReactElement {
     [run, refreshPaired],
   );
 
+  const pending = busy !== null;
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Discovery + pairing spike (3 + 4)</Text>
+    <Screen>
       {!linked && (
-        <Text style={styles.warning}>
+        <Note tone="warning" icon={TriangleAlert}>
           Native module not linked — rebuild the dev client to include it.
+        </Note>
+      )}
+      {message !== null && <Note tone="muted">{message}</Note>}
+      {busy !== null && (
+        <Text variant="caption" tone="muted">
+          {busy}…
         </Text>
       )}
-      {message !== null && <Text style={styles.message}>{message}</Text>}
-      {busy !== null && <Text style={styles.muted}>{busy}…</Text>}
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Discovery (spike 3)</Text>
+      <Card style={styles.cardGap}>
+        <View style={styles.header}>
+          <Icon icon={MonitorSmartphone} size={16} />
+          <Text variant="bodyStrong">Discovery</Text>
+        </View>
         <View style={styles.row}>
-          <SpikeButton
+          <Button
             label="Start discovery"
+            variant="secondary"
             onPress={onStartDiscovery}
-            disabled={!linked || busy !== null || discovering}
+            block
+            disabled={!linked || pending || discovering}
           />
-          <SpikeButton
+          <Button
             label="Stop"
+            variant="ghost"
             onPress={onStopDiscovery}
-            disabled={!linked || busy !== null || !discovering}
+            block
+            disabled={!linked || pending || !discovering}
           />
         </View>
         {discovering && desktops.length === 0 && (
-          <Text style={styles.muted}>Searching the LAN… keep the screen on.</Text>
+          <Text variant="caption" tone="muted">
+            Searching the LAN… keep the screen on.
+          </Text>
         )}
-        {desktops.map((desktop) => (
-          <View key={desktop.serviceName} style={styles.itemRow}>
-            <Text style={styles.strong}>{desktop.displayName ?? desktop.serviceName}</Text>
-            <Text style={styles.muted}>
-              {desktop.host ?? '—'}:{desktop.port} · v{desktop.protocolVersion ?? '?'} ·{' '}
-              {desktop.tls ? 'tls' : 'no-tls'}
-            </Text>
-          </View>
+        {desktops.map((desktop, index) => (
+          <Fragment key={desktop.serviceName}>
+            {index > 0 && <Divider />}
+            <View style={styles.deviceRow}>
+              <Icon icon={Monitor} tone="text" />
+              <View style={styles.deviceInfo}>
+                <Text variant="bodyStrong" numberOfLines={1}>
+                  {desktop.displayName ?? desktop.serviceName}
+                </Text>
+                <Text variant="caption" tone="subtle">
+                  {desktop.host ?? '—'}:{desktop.port} · v{desktop.protocolVersion ?? '?'} ·{' '}
+                  {desktop.tls ? 'tls' : 'no-tls'}
+                </Text>
+              </View>
+            </View>
+          </Fragment>
         ))}
-      </View>
+      </Card>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Pair (spike 4)</Text>
+      <Card style={styles.cardGap}>
+        <View style={styles.header}>
+          <Icon icon={QrCode} size={16} />
+          <Text variant="bodyStrong">Pair a desktop</Text>
+        </View>
         {scanning ? (
-          <Suspense fallback={<Text style={styles.muted}>Loading camera…</Text>}>
+          <Suspense
+            fallback={
+              <Text variant="caption" tone="muted">
+                Loading camera…
+              </Text>
+            }
+          >
             <QrScanner onScanned={onScanned} onCancel={() => setScanning(false)} />
           </Suspense>
         ) : (
           <>
-            <Text style={styles.muted}>
+            <Text variant="caption" tone="muted">
               {cameraNativeAvailable
                 ? 'Scan the pairing QR on your desktop, or paste the foldersync://pair?… code.'
                 : 'Paste the foldersync://pair?… code. (Rebuild the dev client to scan in-app.)'}
             </Text>
             <TextInput
-              style={styles.input}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: t.colors.surfaceSunken,
+                  borderRadius: t.radius.md,
+                  color: t.colors.text,
+                  padding: t.space.md,
+                },
+              ]}
               value={qr}
               onChangeText={setQr}
               placeholder="foldersync://pair?v=1&device=…"
+              placeholderTextColor={t.colors.textSubtle}
               autoCapitalize="none"
               autoCorrect={false}
               multiline
             />
             <View style={styles.row}>
               {cameraNativeAvailable && (
-                <SpikeButton
+                <Button
                   label="Scan QR"
+                  icon={ScanLine}
+                  variant="secondary"
                   onPress={() => setScanning(true)}
-                  disabled={!linked || busy !== null}
+                  block
+                  disabled={!linked || pending}
                 />
               )}
-              <SpikeButton
+              <Button
                 label="Pair"
                 onPress={onPair}
-                disabled={!linked || busy !== null || qr.trim().length === 0}
+                block
+                disabled={!linked || pending || qr.trim().length === 0}
               />
             </View>
           </>
         )}
-      </View>
+      </Card>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Paired desktops ({paired.length})</Text>
+      <Card style={styles.cardGap}>
+        <Text variant="bodyStrong">Paired desktops ({paired.length})</Text>
         {paired.length === 0 ? (
-          <Text style={styles.muted}>None yet.</Text>
+          <Text variant="caption" tone="muted">
+            None yet.
+          </Text>
         ) : (
-          paired.map((device) => (
-            <View key={device.deviceId} style={styles.itemRow}>
-              <View style={styles.itemInfo}>
-                <Text style={styles.strong}>{device.displayName}</Text>
-                <Text style={styles.muted}>
-                  {device.host}:{device.port}
-                </Text>
+          paired.map((device, index) => (
+            <Fragment key={device.deviceId}>
+              {index > 0 && <Divider />}
+              <View style={styles.deviceRow}>
+                <Icon icon={Monitor} tone="text" />
+                <View style={styles.deviceInfo}>
+                  <Text variant="bodyStrong" numberOfLines={1}>
+                    {device.displayName}
+                  </Text>
+                  <Text variant="caption" tone="subtle">
+                    {device.host}:{device.port}
+                  </Text>
+                </View>
+                <Button
+                  label="Remove"
+                  variant="ghost"
+                  danger
+                  onPress={() => onRemovePaired(device.deviceId)}
+                  disabled={pending}
+                />
               </View>
-              <SpikeButton
-                label="Remove"
-                onPress={() => onRemovePaired(device.deviceId)}
-                disabled={busy !== null}
-              />
-            </View>
+            </Fragment>
           ))
         )}
-      </View>
-    </ScrollView>
+      </Card>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#f3f4f6',
-    borderRadius: 8,
-    gap: 8,
-    padding: 12,
-  },
-  cardTitle: {
-    fontWeight: '600',
-  },
-  container: {
-    gap: 12,
-    padding: 16,
-  },
-  input: {
-    backgroundColor: '#ffffff',
-    borderColor: '#d1d5db',
-    borderRadius: 6,
-    borderWidth: 1,
-    fontFamily: 'monospace',
-    fontSize: 12,
-    minHeight: 64,
-    padding: 8,
-  },
-  itemInfo: {
-    flexShrink: 1,
-    gap: 2,
-  },
-  itemRow: {
-    alignItems: 'center',
-    borderTopColor: '#e5e7eb',
-    borderTopWidth: 1,
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'space-between',
-    paddingTop: 6,
-  },
-  message: {
-    color: '#1f2933',
-  },
-  muted: {
-    color: '#6b7280',
-    fontSize: 13,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  strong: {
-    fontWeight: '600',
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '600',
-  },
-  warning: {
-    color: '#92400e',
-  },
+  cardGap: { gap: 8 },
+  deviceInfo: { flex: 1, gap: 2 },
+  deviceRow: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingVertical: 6 },
+  header: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  input: { fontFamily: 'monospace', fontSize: 12, minHeight: 64 },
+  row: { flexDirection: 'row', gap: 8 },
 });

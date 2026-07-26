@@ -207,6 +207,9 @@ When you add an icon for a shared concept, record it here.
   icon + label carrying the colour role (so colour stays rare).
 - **ProgressBar** — sunken track, accent fill, rounded ends; throttled by the caller (§2).
 - **Divider** — the only border: a hairline separator, never around an element.
+- **Note** (mobile `Note`) / **`.alert`** (desktop) — an inline note: a sunken well with a small
+  tone-coloured icon and caption, for the calm "what happened / what to do next" lines (§3). Not a
+  floating card; sits in the flow. Tones: muted (default), success, warning, danger.
 - **Text** (mobile) / type classes (desktop) — the one type scale + a semantic tone.
 
 ## 8. Current state
@@ -271,6 +274,20 @@ When you add an icon for a shared concept, record it here.
   and on save **"Saved to Photos"**. Icons `Images` / `Download` / `ImageOff` / `X` (§7.6). This is a
   restore/read surface, not a §5 parity surface — the desktop already holds the files locally, so
   there is no desktop twin.
+- **Diagnostics screens rebuilt on the design system (mobile).** The three developer
+  diagnostics surfaces reached from the home screen — **"Pair a desktop"** (`app/spike-pairing.tsx`,
+  the phone half of the §5 pairing flow: discovery + pinned-TLS pairing) and the two under
+  **Diagnostics**, **"SAF access"** (`app/spike-saf.tsx`) and **"Foreground service"**
+  (`app/spike-service.tsx`) — now build only from the tokens + primitives (`Screen`, `Card`,
+  `Button`, `Text`, `Icon`, `Divider`, `Note`), so they follow the OS light/dark setting and press
+  with the elevation sink, never an opacity flash. They keep their intentional raw/absolute values
+  (byte totals, the absolute SAF tree URI, poll counts — §4), but no longer carry hard-coded hex or
+  their own throwaway button. The one accent spark per screen lands on its single primary action
+  (Pick folder / Start / Pair); everything else is secondary or ghost. The retired `SpikeButton`
+  (hard-coded graphite fill, opacity-flash press) and the raw-styled `QrScanner` are gone/rebuilt on
+  the primitives. User-facing "spike" jargon was dropped from the nav-header titles (§3). The new
+  **`Note`** primitive (§7.7) is the mobile twin of the desktop `.alert`, so the not-linked / error
+  banners read the same on both apps.
 - A shared cross-platform `packages/ui` remains deferred (spec 10.1): React Native and the
   DOM don't share component code, so the honest shared artifact is the **token values**,
   which are duplicated per platform but kept in lockstep and documented canonically in §7.
