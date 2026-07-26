@@ -29,4 +29,10 @@ dependencies {
   // so Gradle resolves to a single artifact — no duplicate class, no version skew. This is
   // the same declaration Expo's own expo-asset module uses. (Spike 4: pinned-TLS pairing.)
   implementation 'com.squareup.okhttp3:okhttp:4.9.2'
+
+  // Spike 5: resumable tus upload. The pure-Java tus client (no Android/support-library
+  // transitive deps — unlike tus-android-client, which risks an AndroidX clash on EAS). It
+  // talks over java.net.HttpsURLConnection, which PinnedTusClient pins per connection; the
+  // Android content:// streaming is added in UriTusUpload. (spec 18.1/18.2)
+  implementation 'io.tus.java.client:tus-java-client:0.5.0'
 }

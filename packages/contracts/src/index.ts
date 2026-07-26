@@ -62,6 +62,10 @@ export {
   type RootRegisterRequest,
   rootRegisterResponseSchema,
   type RootRegisterResponse,
+  availableDestinationSchema,
+  type AvailableDestination,
+  rootsAvailableResponseSchema,
+  type RootsAvailableResponse,
 } from './roots.ts';
 
 export {

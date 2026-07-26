@@ -12,6 +12,7 @@ import {
   pairResponseSchema,
   prepareStatusResponseSchema,
   prepareUploadResponseSchema,
+  rootsAvailableResponseSchema,
   syncStatusResponseSchema,
   type DesktopDeletionPolicy,
 } from '@foldersync/contracts';
@@ -342,6 +343,8 @@ const MAP1 = 'aaaaaaaa-1111-4111-8111-111111111111';
 const MAP2 = 'bbbbbbbb-2222-4222-8222-222222222222';
 const ROOT1 = 'cccccccc-3333-4333-8333-333333333333';
 const REQ = 'eeeeeeee-5555-4555-8555-555555555555';
+const BOUND_MAP = 'dddddddd-4444-4444-8444-444444444444';
+const FOREIGN_MAP = 'abababab-7777-4777-8777-777777777777';
 
 function registerHeaders(): Record<string, string> {
   return { ...authHeaders(), 'content-type': 'application/json' };
@@ -453,6 +456,47 @@ describe('POST /v1/roots/register', () => {
     );
     expect(res.status).toBe(400);
     expect(errorResponseSchema.parse(res.json()).error.code).toBe('bad_request');
+  });
+});
+
+describe('GET /v1/roots/available', () => {
+  it("lists only the calling device's unbound mappings, with free space", async () => {
+    approveMapping(MAP1, '/backups/one'); // unbound, phone-1
+    approveMapping(MAP2, '/backups/two'); // unbound, phone-1
+    bindMapping(BOUND_MAP, ROOT1, '/backups/bound'); // bound → excluded
+    createRepositories(db).devices.insert({
+      phoneDeviceId: 'phone-2',
+      phoneDisplayName: 'Other',
+      tokenHash: hashToken('other-token'),
+      pairedAt: CLOCK,
+    });
+    approveMapping(FOREIGN_MAP, '/backups/foreign', 'phone-2'); // foreign → excluded
+
+    freeSpaceBytes = 512_000_000;
+    const res = await call('GET', '/v1/roots/available', authHeaders());
+    expect(res.status).toBe(200);
+    const body = rootsAvailableResponseSchema.parse(res.json());
+    expect(body.destinations.map((d) => d.mappingId).sort()).toEqual([MAP1, MAP2].sort());
+    expect(
+      body.destinations.every((d) => d.destinationAvailable && d.freeBytes === 512_000_000),
+    ).toBe(true);
+    expect(body.destinations[0]?.displayName).toBe('Destination');
+  });
+
+  it('marks a destination unavailable when its volume cannot be read', async () => {
+    approveMapping(MAP1, '/backups/one');
+    freeSpaceError = new Error('ENODEV');
+    const res = await call('GET', '/v1/roots/available', authHeaders());
+    expect(res.status).toBe(200);
+    expect(rootsAvailableResponseSchema.parse(res.json()).destinations).toEqual([
+      { mappingId: MAP1, displayName: 'Destination', destinationAvailable: false, freeBytes: null },
+    ]);
+  });
+
+  it('requires authentication', async () => {
+    const res = await call('GET', '/v1/roots/available', { [HEADER_PROTOCOL]: '1' });
+    expect(res.status).toBe(401);
+    expect(errorResponseSchema.parse(res.json()).error.code).toBe('unauthorised');
   });
 });
 

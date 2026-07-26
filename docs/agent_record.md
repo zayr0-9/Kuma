@@ -23,6 +23,55 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-26T01:40+0100 — spike/5-tus-upload-roots-binding — Spike 5: tus direct URI upload + roots binding (implemented)
+
+- **Done:** the phone can pick a folder, **bind** it to a desktop destination, and **upload**
+  one file over resumable tus, end-to-end against the real desktop. Native (`UploadEngine.kt`):
+  `UriTusUpload` streams a SAF `content://` URI via `ContentResolver` (no cache copy; size from
+  a file descriptor — spec 18.1); `PinnedTusClient` overrides `prepareConnection` to pin TLS on
+  every tus connection (never trust-all — spec 18.2); `SharedPrefsTusUrlStore` persists the
+  upload URL so **resume survives a process kill**; `UploadManager` drives ONE upload (spec 18.3)
+  on a worker thread with a **pull-model** status snapshot (prepare → tus w/ retry-resume → poll
+  commit, spec 18.5). `ControlClient.kt` does the authenticated control calls (pinned OkHttp +
+  Bearer from `TokenVault` + protocol/request-id): `listAvailableDestinations`, `registerRoot`,
+  `prepareUpload`, `getPrepareStatus`. `PinnedTls.kt` refactored to one `PinnedSsl` shared by
+  OkHttp + the tus `HttpsURLConnection`; `PairingManager` gained native-only `pairedTarget()`
+  (carries the pin) + `phoneDeviceId()`. Dep: **`io.tus.java.client:tus-java-client:0.5.0`**
+  (pure-Java, dependency-free — NOT `tus-android-client`, whose stale support-lib deps risk an
+  AndroidX clash on EAS; custom Base64, no API-26 trap). **Desktop:** new
+  `GET /v1/roots/available` (contract `rootsAvailableResponseSchema` + route + 3 tests) lists the
+  device's **unbound** mappings so the phone can bind — the wire that turns the desktop's "Add
+  folder"/"Waiting for a phone folder" into a bindable target. Mobile: TS DTOs +
+  `src/native/upload.ts` + `app/spike-upload.tsx` harness (folder → destination → upload +
+  progress bar).
+- **How it was grounded:** read the exact desktop wire behaviour first — `controlServer.ts`
+  (auth: `x-foldersync-protocol`+Bearer on every non-public route; `roots/register` needs a
+  desktop-approved `mappingId` bound to the device), `uploadRouting.ts` (tus mount naming by
+  `prepareId` metadata), `roots.ts`/`destinationsController.ts` (mappings created per paired
+  device, unbound until register), `files.ts`/`roots.ts` contracts, `backend.ts` (commit
+  coordinator IS wired → uploads reach `committed`). Verified the **tus-java-client 0.5.0** API
+  against source (getTusInputStream caches → a **fresh `TusUpload` per attempt** + stable
+  fingerprint + persistent URL store is the correct resume shape). An **adversarial
+  compile/security review subagent** ran over the new Kotlin before the build.
+- **Gates (headless):** typecheck (6 projects), lint, tests (contracts 72 + desktop 180 incl. 3
+  new `roots/available` tests) — all green. prettier last.
+- **Verification boundary:** Kotlin cannot compile here (spec 32.1). A cloud EAS dev build was
+  triggered after push — first compile of the tus/ControlClient/UploadManager Kotlin; a Samsung
+  run confirms the pass conditions (bind kumatest; small file → committed; multi-GB + Wi-Fi
+  toggle → resumes; kill+reopen → resumes; no cache copy).
+- **Files:** `modules/foldersync-native/android/src/main/java/expo/modules/foldersync/{ControlClient,UploadEngine}.kt (new),{PinnedTls,PairingManager,FolderSyncModule}.kt`,
+  `modules/foldersync-native/android/build.gradle`, `modules/foldersync-native/src/index.ts`,
+  `apps/mobile/src/native/upload.ts (new)`, `apps/mobile/app/{spike-upload.tsx (new),index.tsx}`,
+  `packages/protocol/src/endpoints.ts`, `packages/contracts/src/{roots,index}.ts`,
+  `apps/desktop/src/main/api/controlServer.ts`, `apps/desktop/test/controlServer.test.ts`,
+  ADR `spike-5-tus-upload.md`.
+- **PR:** branch `spike/5-tus-upload-roots-binding` pushed — open + squash-merge.
+- **Docs updated:** `agent_native.md`, `agent_mobile.md`, `spike-5-tus-upload.md`, this record.
+- **Follow-ups:** verify the EAS build goes green + run the spike-5 checklist on the Samsung
+  (record pass conditions in the ADR). Then the big one: **Room DB (spec 16) + scan engine
+  (spec 17) + real upload engine (spec 18) + phone UI (spec 5)** — turn these spike pieces into
+  the actual backup, on its own branch so Room's KSP/annotation-processor risk is isolated.
+
 ### 2026-07-26T00:03+0100 — spike/3-4-android-discovery-pairing — Spikes 3 + 4: Android discovery + pinned-TLS pairing (implemented)
 
 - **Done:** the "find and connect to the desktop" pair, one branch. **Spike 3** —

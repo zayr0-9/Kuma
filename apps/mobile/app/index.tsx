@@ -24,6 +24,9 @@ export default function HomeScreen(): ReactElement {
       <Link href="/spike-pairing" style={styles.link}>
         Open discovery + pairing spike
       </Link>
+      <Link href="/spike-upload" style={styles.link}>
+        Open upload + roots-binding spike
+      </Link>
       <StatusBar style="auto" />
     </View>
   );
