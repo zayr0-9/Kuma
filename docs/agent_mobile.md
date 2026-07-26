@@ -58,6 +58,18 @@ boundary), 32.2 (EAS workflow). UI changes also require
   `app/transfers.tsx` (spec 5.5 — the active upload with a live progress bar, the queued/failed
   jobs, and recent history). Both poll the native engine (pull model). The home screen links
   them above a "Diagnostics" section.
+- **Folder gallery built** (spec 6.6/5.5): `app/gallery.tsx` — a paginated, lazy-loaded thumbnail
+  grid of a folder's backed-up images (opened via **View photos** on each Folders card, routed with
+  `rootId`+`name`), and a full-screen viewer with swipe paging + pinch/pan/double-tap zoom and a
+  **Download** to the phone's photo library. Native calls go through `src/native/gallery.ts`
+  (`listRemoteImages` / `fetchThumbnail` / `fetchRemoteImage` / `downloadRemoteImage`); the grid and
+  viewer render only the local `file://` URIs the native module returns — no image bytes, bearer
+  token or TLS ever in JS. Adds three **native** deps — `react-native-gesture-handler`,
+  `react-native-reanimated` (v4) and `react-native-worklets` (SDK-57 versions) — plus a new
+  `babel.config.js` (`babel-preset-expo`, which auto-adds the reanimated worklets plugin) and a
+  `GestureHandlerRootView` wrap in `app/_layout.tsx` (+ the `gallery` Stack screen). **Needs a new
+  EAS build** (new native modules + the Kotlin gallery surface). Verified headlessly so far:
+  `expo-doctor` 20/20 and a clean `expo export` (the worklet transform + gesture-handler bundle).
 - **Spike diagnostic harnesses** (developer diagnostics screens with intentional raw/absolute
   values per agent_design §4 — NOT product surfaces, so the §5 parity checklist does not apply):
   `app/spike-saf.tsx` (SAF), `app/spike-service.tsx` (foreground service), `app/spike-pairing.tsx`

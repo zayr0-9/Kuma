@@ -190,6 +190,10 @@ Canonical glyphs for shared concepts:
 | retry                   | `RotateCcw`                   |
 | history / time          | `Clock`                       |
 | navigate                | `ChevronRight` / `ArrowRight` |
+| photos / gallery        | `Images`                      |
+| download / save         | `Download`                    |
+| missing image           | `ImageOff`                    |
+| close / dismiss         | `X`                           |
 
 When you add an icon for a shared concept, record it here.
 
@@ -256,6 +260,17 @@ When you add an icon for a shared concept, record it here.
   and the Pairing and Destinations panels are restyled on it (no more browser-default HTML).
   Both follow the OS light/dark setting. Icons are Lucide on both sides
   (`lucide-react-native` / `lucide-react`, same version).
+- **Folder gallery built (mobile, spec 6.6).** A new phone-only surface: opening **View photos**
+  on a Folders card shows a lazy-loaded thumbnail grid of that folder's backed-up images (paginated
+  from the desktop), and tapping one opens a full-screen viewer — swipe between images, pinch/pan and
+  double-tap to zoom, and **Download** to save the full image into the phone's photo library. Built
+  on the design tokens + primitives (`Text`, `Icon`); the black full-bleed viewer is a deliberate
+  exception to the zinc canvas (photos read best on black), with white overlay controls. Canonical
+  wording: card action **"View photos"**, screen title = the folder name, empty state **"No photos
+  yet"** / **"Images backed up from this folder will appear here."**, the viewer counter **"n / m"**,
+  and on save **"Saved to Photos"**. Icons `Images` / `Download` / `ImageOff` / `X` (§7.6). This is a
+  restore/read surface, not a §5 parity surface — the desktop already holds the files locally, so
+  there is no desktop twin.
 - A shared cross-platform `packages/ui` remains deferred (spec 10.1): React Native and the
   DOM don't share component code, so the honest shared artifact is the **token values**,
   which are duplicated per platform but kept in lockstep and documented canonically in §7.

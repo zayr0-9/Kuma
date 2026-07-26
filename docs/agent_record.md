@@ -23,6 +23,49 @@ Entries are ordered newest-first.
 
 ---
 
+### 2026-07-26T16:48+0100 — feat/remote-gallery-mobile — Remote gallery: native fetch/download + mobile grid & pan/zoom viewer (spec 6.6, client half)
+
+- **Done:** the phone half of the remote gallery, **stacked on `feat/remote-gallery-api`**.
+  Opening **View photos** on a Folders card browses that folder's backed-up images from the
+  desktop (paginated, lazy thumbnails); a full-screen viewer swipes between images, pinch/pans and
+  double-tap-zooms, and downloads them back into the phone's photo library.
+  - **Native (Kotlin):** `ControlClient.listRemoteImages(rootId, cursor, limit)` + `streamGet(path,
+consume)` (binary GET over the pinned client → a sink; bytes never touch JS, spec 30). New
+    `RemoteMedia` caches thumbnails / full images under `cacheDir/foldersync/{thumbs,images}` keyed
+    by version id (returns `file://` URIs) and `download()` streams into **MediaStore**
+    `Pictures/FolderSync` (IS_PENDING-bracketed; no storage permission on API 29+). Four
+    `AsyncFunction`s + the `foldersync-native` TS surface.
+  - **Mobile:** `app/gallery.tsx` (FlatList thumbnail grid + a reanimated/gesture-handler
+    pinch/pan/double-tap viewer; horizontal paging disabled while zoomed so a pan moves the image),
+    `src/native/gallery.ts` wrapper, **View photos** on the Folders card, a `gallery` route +
+    `GestureHandlerRootView` in `_layout.tsx`. New native deps `react-native-gesture-handler`
+    ~2.32.0 / `react-native-reanimated` 4.5.0 / `react-native-worklets` 0.10.0 (SDK-57) +
+    `babel.config.js`.
+- **Files:** `modules/foldersync-native/src/index.ts`,
+  `modules/foldersync-native/android/.../{ControlClient.kt, RemoteMedia.kt (new), FolderSyncModule.kt}`;
+  `apps/mobile/app/{gallery.tsx (new), _layout.tsx, folders.tsx}`,
+  `apps/mobile/src/native/gallery.ts` (new), `apps/mobile/{package.json, babel.config.js (new)}`,
+  `pnpm-lock.yaml`; docs `agent_native.md`, `agent_mobile.md`, `agent_design.md`.
+- **Gates:** mobile + native typecheck clean, eslint clean, `format:check` clean (last). Headless
+  verification: **expo-doctor 20/20** and a clean **`expo export`** (reanimated worklet transform +
+  gesture-handler bundle, 3541 modules). Kotlin compiles only on EAS.
+- **Build:** EAS dev build **`9271307c`** **FINISHED** — Kotlin compiled clean and
+  gesture-handler / reanimated / worklets autolinked with no issues. APK:
+  https://expo.dev/artifacts/eas/ygxUGXlAL-7qTqwxrvs-nLExUt_iuTlCW9ATQBAjHqY.apk — install on the
+  Samsung SM-S948B to verify the gallery on device (nothing else compiles the Kotlin).
+- **PR:** `feat/remote-gallery-mobile` — the backend landed as **#25**, so this was **rebased onto
+  main** (`git rebase --onto origin/main feat/remote-gallery-api`); the diff is now mobile-only
+  (15 files, no desktop/contracts). Ready to squash-merge.
+- **Docs updated:** `agent_native.md`, `agent_mobile.md`, `agent_design.md` (spec 6.6 landed with
+  the backend PR).
+- **Follow-ups:** **device-verified on the Samsung SM-S948B** (APK `9271307c`) — the gallery works
+  end to end (browse → view → zoom → download). Note a stale dev client hard-crashes at launch now
+  that `GestureHandlerRootView` sits at the app root (new native deps → reinstall the dev build).
+  Later niceties: order the listing by capture date rather than committedAt (backup time); the
+  MediaStore download path targets API 29+.
+
+---
+
 ### 2026-07-26T16:35+0100 — feat/remote-gallery-api — Remote gallery: list/thumbnail/content endpoints + thumbnailer (spec 6.6, backend half)
 
 - **Done:** the desktop + wire half of the phone-side **remote gallery** (new spec **6.6**):

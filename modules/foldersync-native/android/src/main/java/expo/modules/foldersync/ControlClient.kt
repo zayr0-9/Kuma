@@ -164,6 +164,66 @@ class ControlClient private constructor(
     }
   }
 
+  // --- remote gallery (spec 6.6): browse + fetch already-backed-up images ---
+
+  // One page of a bound root's committed images (GET /v1/files/list). Returns a JS-ready map
+  // mirroring the roots-binding shape (ok/reason), including the opaque nextCursor for the
+  // next page. `cursor` is null for the first page; `limit` bounds the page size.
+  fun listRemoteImages(rootId: String, cursor: String?, limit: Int): Map<String, Any?> {
+    val path = StringBuilder("/v1/files/list?rootId=").append(rootId).append("&limit=").append(limit)
+    if (cursor != null) path.append("&cursor=").append(java.net.URLEncoder.encode(cursor, "UTF-8"))
+    return when (val r = send("GET", path.toString(), null)) {
+      is Outcome.Err -> failure(r.reason)
+      is Outcome.Ok -> try {
+        val obj = JSONObject(r.body)
+        val array = obj.getJSONArray("items")
+        val items = (0 until array.length()).map { index ->
+          val o = array.getJSONObject(index)
+          mapOf(
+            "fileId" to o.getString("fileId"),
+            "versionId" to o.getString("versionId"),
+            "relativePath" to o.getString("relativePath"),
+            "name" to o.getString("name"),
+            "size" to o.getLong("size").toDouble(),
+            "sha256" to o.getString("sha256"),
+            "contentType" to o.getString("contentType"),
+            "committedAt" to o.getString("committedAt"),
+          )
+        }
+        mapOf(
+          "ok" to true,
+          "items" to items,
+          "nextCursor" to if (obj.isNull("nextCursor")) null else obj.getString("nextCursor"),
+        )
+      } catch (e: Exception) {
+        failure("bad_response")
+      }
+    }
+  }
+
+  // Stream a binary GET (thumbnail/content bytes) over the pinned client to a consumer that
+  // writes it to a cache file or a MediaStore sink. Returns false on any HTTP/TLS/IO failure;
+  // the raw bytes never round-trip through JS (spec 30) — only a resulting file URI does.
+  fun streamGet(path: String, consume: (java.io.InputStream) -> Unit): Boolean {
+    return try {
+      val request = Request.Builder()
+        .url(absoluteUrl(path))
+        .header("Authorization", "Bearer $token")
+        .header(HEADER_PROTOCOL, PROTOCOL_VERSION)
+        .header(HEADER_REQUEST_ID, UUID.randomUUID().toString())
+        .get()
+        .build()
+      http.newCall(request).execute().use { response ->
+        val body = response.body
+        if (!response.isSuccessful || body == null) return false
+        consume(body.byteStream())
+        true
+      }
+    } catch (e: Exception) {
+      false
+    }
+  }
+
   // --- internals ---
 
   private sealed interface Outcome {

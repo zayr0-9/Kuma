@@ -191,6 +191,29 @@ export interface SyncEvent {
   createdAt: number;
 }
 
+/** One backed-up image the remote gallery can view/download (spec 6.6). Mirrors the desktop
+ *  `remoteImageItem` wire shape; `versionId` keys the local thumbnail/image cache. */
+export interface RemoteImageItem {
+  fileId: string;
+  versionId: string;
+  relativePath: string;
+  name: string;
+  size: number;
+  sha256: string;
+  contentType: string;
+  committedAt: string;
+}
+
+/** One page of the remote gallery listing. `nextCursor` is null on the last page. */
+export type ListRemoteImagesResult =
+  { ok: true; items: RemoteImageItem[]; nextCursor: string | null } | { ok: false; reason: string };
+
+/** A backed-up image fetched into the local cache — `uri` is a `file://` the UI renders. */
+export type LocalMediaResult = { ok: true; uri: string } | { ok: false; reason: string };
+
+/** Outcome of downloading a backed-up image into the phone's photo library (spec 6.6). */
+export type DownloadImageResult = { ok: true; savedName: string } | { ok: false; reason: string };
+
 export interface FolderSyncNativeModule {
   ping(): string;
 
@@ -253,6 +276,25 @@ export interface FolderSyncNativeModule {
   getTransfers(): Promise<TransfersSnapshot>;
   /** Recent user-readable operational events, newest first (spec 5.5). */
   getSyncEvents(limit: number): Promise<SyncEvent[]>;
+
+  // Remote gallery / restore (spec 6.6). The desktop is the source of truth; the phone pages
+  // the listing and fetches thumbnails / full images into a local cache, returning file URIs.
+  /** A page of a bound root's committed images; `cursor` null for the first page. */
+  listRemoteImages(
+    rootId: string,
+    cursor: string | null,
+    limit: number,
+  ): Promise<ListRemoteImagesResult>;
+  /** Fetch (and cache) a thumbnail, returning a local `file://` URI. */
+  fetchThumbnail(fileId: string, versionId: string): Promise<LocalMediaResult>;
+  /** Fetch (and cache) the full-resolution image for the viewer. */
+  fetchRemoteImage(fileId: string, versionId: string): Promise<LocalMediaResult>;
+  /** Download a full image into the phone's photo library (Pictures/FolderSync). */
+  downloadRemoteImage(
+    fileId: string,
+    name: string,
+    contentType: string,
+  ): Promise<DownloadImageResult>;
 }
 
 // null when the running dev client was built before this module existed —

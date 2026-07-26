@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Cloud,
   Folder,
+  Images,
   Inbox,
   Monitor,
   Plus,
@@ -442,6 +443,18 @@ export default function FoldersScreen(): ReactElement {
               {root.lastErrorMessage}
             </Text>
           ) : null}
+
+          <Button
+            label="View photos"
+            icon={Images}
+            variant="ghost"
+            onPress={() =>
+              router.push({
+                pathname: '/gallery',
+                params: { rootId: root.id, name: root.displayName },
+              })
+            }
+          />
 
           <Divider />
           <View style={styles.cardActions}>
