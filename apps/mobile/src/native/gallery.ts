@@ -5,6 +5,7 @@
 // bearer token, which never crosses to JS). downloadRemoteImage saves into the photo library.
 import { requireNative } from './module.ts';
 import type {
+  CachedThumbnailsResult,
   DownloadImageResult,
   ListRemoteImagesResult,
   LocalMediaResult,
@@ -13,6 +14,7 @@ import type {
 export { isNativeLinked, NativeModuleUnavailableError } from './module.ts';
 
 export type {
+  CachedThumbnailsResult,
   DownloadImageResult,
   ListRemoteImagesResult,
   LocalMediaResult,
@@ -27,8 +29,19 @@ export function listRemoteImages(
   return requireNative().listRemoteImages(rootId, cursor, limit);
 }
 
-export function fetchThumbnail(fileId: string, versionId: string): Promise<LocalMediaResult> {
-  return requireNative().fetchThumbnail(fileId, versionId);
+export function cachedThumbnails(
+  rootId: string,
+  versionIds: string[],
+): Promise<CachedThumbnailsResult> {
+  return requireNative().cachedThumbnails(rootId, versionIds);
+}
+
+export function fetchThumbnail(
+  rootId: string,
+  fileId: string,
+  versionId: string,
+): Promise<LocalMediaResult> {
+  return requireNative().fetchThumbnail(rootId, fileId, versionId);
 }
 
 export function fetchRemoteImage(fileId: string, versionId: string): Promise<LocalMediaResult> {

@@ -212,6 +212,12 @@ export type ListRemoteImagesResult =
 /** A backed-up image fetched into the local cache — `uri` is a `file://` the UI renders. */
 export type LocalMediaResult = { ok: true; uri: string } | { ok: false; reason: string };
 
+/**
+ * Which of a folder's versions are already cached locally (spec 6.6). `uris` maps version id →
+ * local `file://` URI for cache hits only; misses are omitted so the caller fetches just those.
+ */
+export type CachedThumbnailsResult = { ok: true; uris: Record<string, string> };
+
 /** Outcome of downloading a backed-up image into the phone's photo library (spec 6.6). */
 export type DownloadImageResult = { ok: true; savedName: string } | { ok: false; reason: string };
 
@@ -286,8 +292,10 @@ export interface FolderSyncNativeModule {
     cursor: string | null,
     limit: number,
   ): Promise<ListRemoteImagesResult>;
-  /** Fetch (and cache) a thumbnail, returning a local `file://` URI. */
-  fetchThumbnail(fileId: string, versionId: string): Promise<LocalMediaResult>;
+  /** Local URIs for the versions already cached in this folder; misses omitted (no network). */
+  cachedThumbnails(rootId: string, versionIds: string[]): Promise<CachedThumbnailsResult>;
+  /** Fetch (and durably cache) a thumbnail for a folder, returning a local `file://` URI. */
+  fetchThumbnail(rootId: string, fileId: string, versionId: string): Promise<LocalMediaResult>;
   /** Fetch (and cache) the full-resolution image for the viewer. */
   fetchRemoteImage(fileId: string, versionId: string): Promise<LocalMediaResult>;
   /** Download a full image into the phone's photo library (Pictures/FolderSync). */
