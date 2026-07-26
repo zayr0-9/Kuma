@@ -224,6 +224,22 @@ describe('tus upload transport (folded into the control server)', () => {
     );
   });
 
+  it('accepts a creation POST whose content-type has no parser (Android client sends one)', async () => {
+    // Regression: tus-java-client's creation POST carries a content-type Fastify has no
+    // parser for, which failed with 415 before the catch-all content-type parser (spec 18.4).
+    seedPrepare({ size: 10 });
+    const res = await tusCall(
+      'POST',
+      '/v1/uploads',
+      authTus({
+        'upload-length': '10',
+        'upload-metadata': uploadMetadata(PREPARE_ID),
+        'content-type': 'application/octet-stream',
+      }),
+    );
+    expect(res.status).toBe(201);
+  });
+
   it('rejects an unauthenticated upload creation', async () => {
     seedPrepare({ size: 10 });
     const res = await tusCall('POST', '/v1/uploads', {

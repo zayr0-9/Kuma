@@ -162,9 +162,14 @@ export function registerUploadRoutes(app: FastifyInstance, ctx: UploadRoutingCon
     });
   };
 
-  // tus PATCH bodies must reach tus unparsed: this parser hands the raw stream on
-  // without consuming it.
-  app.addContentTypeParser('application/offset+octet-stream', (_request, _payload, done) => {
+  // Every tus request must reach @tus/server with its body unparsed. The PATCH chunks are
+  // application/offset+octet-stream, but the creation POST also carries a content-type
+  // Fastify has no parser for (a bare octet-stream from the Android client), which otherwise
+  // fails with 415 Unsupported Media Type before the handler runs. A catch-all parser hands
+  // the raw stream through without consuming it; the built-in application/json parser still
+  // handles the control API's JSON routes (a specific parser wins over '*'). This is the
+  // "bypass body parsing on upload routes" the spec calls for (spec 18.4/35 spike 6).
+  app.addContentTypeParser('*', (_request, _payload, done) => {
     done(null, null);
   });
   app.all(ENDPOINTS.uploads, dispatch);
